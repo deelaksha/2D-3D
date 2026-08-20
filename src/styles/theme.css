@@ -1,0 +1,98 @@
+/* WoodKit Designer — design tokens.
+   Clean, modern, product-grade. Warm wood accent over cool neutral surfaces.
+   Every UI component shares these variables so the app reads as one system. */
+
+:root {
+  /* Surfaces — cool, near-white neutrals (not beige) */
+  --wk-bg: #f4f5f7;
+  --wk-surface: #ffffff;
+  --wk-surface-2: #fafbfc;
+  --wk-surface-3: #eceef1;   /* canvas / inset areas */
+  --wk-panel: #ffffff;
+  --wk-border: #e9ebef;
+  --wk-border-strong: #d5d9df;
+
+  /* Ink — slate, high-contrast but not pure black */
+  --wk-ink: #1a1d23;
+  --wk-ink-soft: #565d68;
+  --wk-ink-faint: #99a0ab;
+
+  /* Accent — refined wood-amber */
+  --wk-accent: #ef8c3b;
+  --wk-accent-soft: #fcebdb;
+  --wk-accent-ink: #bd6a1e;
+
+  /* Functional (modern, slightly vivid) */
+  --wk-blue: #3b82f6;
+  --wk-blue-soft: #e4eefe;
+  --wk-green: #18a558;
+  --wk-green-soft: #ddf3e6;
+  --wk-red: #ef4444;
+  --wk-red-soft: #fce6e6;
+  --wk-amber: #f0a91b;
+  --wk-amber-soft: #fdefd2;
+  --wk-purple: #8b5cf6;
+
+  /* Connector type colors */
+  --wk-c-tab: #18a558;
+  --wk-c-slot: #3b82f6;
+  --wk-c-hole: #8b5cf6;
+  --wk-c-peg: #ef8c3b;
+
+  /* Spacing scale */
+  --wk-s1: 4px;
+  --wk-s2: 8px;
+  --wk-s3: 12px;
+  --wk-s4: 16px;
+  --wk-s5: 24px;
+  --wk-s6: 32px;
+
+  /* Radii — a touch larger for a softer, modern feel */
+  --wk-r1: 8px;
+  --wk-r2: 12px;
+  --wk-r3: 16px;
+  --wk-r-pill: 999px;
+
+  /* Shadows — soft, cool-tinted, layered */
+  --wk-shadow-1: 0 1px 2px rgba(20, 24, 33, 0.06), 0 1px 1px rgba(20, 24, 33, 0.04);
+  --wk-shadow-2: 0 6px 18px rgba(20, 24, 33, 0.10);
+  --wk-shadow-3: 0 18px 48px rgba(20, 24, 33, 0.20);
+
+  --wk-font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --wk-mono: "SF Mono", ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo, monospace;
+
+  --wk-topbar-h: 48px;
+  --wk-statusbar-h: 30px;
+  --wk-left-w: 236px;
+  --wk-right-w: 304px;
+  --wk-transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --wk-bg: #16181d;
+    --wk-surface: #1e2127;
+    --wk-surface-2: #23262d;
+    --wk-surface-3: #2a2e36;
+    --wk-panel: #1e2127;
+    --wk-border: #2e333c;
+    --wk-border-strong: #3d434e;
+    --wk-ink: #eef0f3;
+    --wk-ink-soft: #a9b0bc;
+    --wk-ink-faint: #727a86;
+    --wk-accent: #f2954a;
+    --wk-accent-soft: #3a2a17;
+    --wk-accent-ink: #f4ad6b;
+    --wk-blue-soft: #1c2b44;
+    --wk-green-soft: #16321f;
+    --wk-red-soft: #3d211f;
+    --wk-amber-soft: #3a2f14;
+    --wk-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --wk-shadow-2: 0 6px 18px rgba(0, 0, 0, 0.5);
+    --wk-shadow-3: 0 18px 48px rgba(0, 0, 0, 0.6);
+    --wk-c-tab: #35c07a;
+    --wk-c-slot: #5a9df8;
+    --wk-c-hole: #a88bf7;
+    --wk-c-peg: #f2954a;
+  }
+}
