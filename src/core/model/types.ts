@@ -181,6 +181,15 @@ export type ConnectorType =
  */
 export type ConnectorRole = "insert" | "receiver" | "neutral";
 
+/** Custom physical design patterns for connectors. */
+export type ConnectorPattern =
+  | "standard"
+  | "dovetail"
+  | "puzzle"
+  | "tslot"
+  | "teeth"
+  | "wave";
+
 /**
  * A connector lives on a part, at a local position, facing a direction.
  * `orientation` is degrees CW; 0 points +X (right) in the part's local frame.
@@ -192,6 +201,8 @@ export interface Connector {
   type: ConnectorType;
   /** Male (adds a plug) vs female (cuts a socket) vs neutral. Drives geometry. */
   role?: ConnectorRole;
+  /** Custom joint shape pattern (dovetail, puzzle key, t-slot, finger-teeth, wave). */
+  pattern?: ConnectorPattern;
   /** Local position on the part (mm). */
   position: Vec2;
   /** Facing direction (degrees CW, 0 = +X). */
@@ -213,6 +224,7 @@ export interface Connector {
   /** Free-form key/value metadata. */
   metadata?: Record<string, string | number | boolean>;
 }
+
 
 /* ------------------------------------------------------------------ */
 /* Constraints                                                         */

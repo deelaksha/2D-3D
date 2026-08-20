@@ -18,7 +18,9 @@ import {
   addConnection,
   placePart,
   removeConnection,
+  rotateConnector,
 } from "@/core/store/actions";
+
 import { checkCompatibility } from "@/core/connectors/compat";
 import {
   autoConnectProject,
@@ -719,11 +721,21 @@ export default function Canvas3D(): JSX.Element {
             background: "var(--wk-surface)",
             color: "var(--wk-ink)",
             border: "1px solid var(--wk-accent)",
+            gap: 12,
           }}
         >
           <span>
             Connecting <strong>{selectedSourceConn.partName}</strong> [{selectedSourceConn.connectorName}] → Click target connector to mate!
           </span>
+          <button
+            type="button"
+            className="wk-btn wk-btn--ghost"
+            style={{ padding: "2px 8px", fontSize: 11, color: "var(--wk-accent-ink)" }}
+            onClick={() => rotateConnector(selectedSourceConn.connectorId, 90)}
+            title="Rotate connector orientation angle by 90 degrees"
+          >
+            ↻ Rotate 90°
+          </button>
           <button
             type="button"
             className="wk-btn wk-btn--ghost"
@@ -734,6 +746,7 @@ export default function Canvas3D(): JSX.Element {
           </button>
         </div>
       )}
+
 
       {/* ---- Toast Notification ---- */}
       {toastMessage && <div className="wk-toast wk-toast--ok">{toastMessage}</div>}

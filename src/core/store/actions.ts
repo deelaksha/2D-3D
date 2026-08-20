@@ -379,6 +379,20 @@ export function setConnectorRole(connectorId: string, role: ConnectorRole): void
   updateConnector(connectorId, { role }, `Set connector to ${role}`);
 }
 
+/** Change custom joint shape pattern (standard, dovetail, puzzle, tslot, teeth, wave). */
+export function setConnectorPattern(connectorId: string, pattern: import("../model/types").ConnectorPattern): void {
+  updateConnector(connectorId, { pattern }, `Set connector pattern to ${pattern}`);
+}
+
+/** Rotate connector orientation angle (degrees CW). */
+export function rotateConnector(connectorId: string, angleDeltaDeg: number): void {
+  const found = findConnector(connectorId);
+  if (!found) return;
+  const newAngle = ((found.orientation + angleDeltaDeg) % 360 + 360) % 360;
+  updateConnector(connectorId, { orientation: newAngle }, `Rotate connector to ${newAngle}°`);
+}
+
+
 /** Locate a connector and its owning part. */
 function locateConnector(id: string): { part: Part; connector: Connector } | null {
   for (const p of store.getState().project.parts) {

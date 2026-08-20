@@ -14,6 +14,7 @@
 import { useEffect, useState } from "react";
 import type {
   Connector,
+  ConnectorPattern,
   ConnectorType,
   Part,
   Project,
@@ -30,7 +31,9 @@ import {
   invertConnector,
   renameConnector,
   renamePart,
+  rotateConnector,
   selectConnector,
+  setConnectorPattern,
   setConnectorRole,
   setPartMaterial,
   setPartShape,
@@ -40,6 +43,7 @@ import {
 } from "@/core/store/actions";
 import { connectorRole } from "@/core/connectors/feature";
 import { complementType } from "@/core/connectors/compat";
+
 
 /* ------------------------------------------------------------------ */
 /* Static lists                                                        */
@@ -239,6 +243,22 @@ function ConnectorEditor(props: {
         </div>
       </label>
 
+      <label className="wk-field">
+        <span className="wk-field__label">Pattern</span>
+        <select
+          className="wk-select"
+          value={c.pattern ?? "standard"}
+          onChange={(e) => setConnectorPattern(c.id, e.target.value as ConnectorPattern)}
+        >
+          <option value="standard">Standard (Straight)</option>
+          <option value="dovetail">Dovetail Joint</option>
+          <option value="puzzle">Puzzle Key</option>
+          <option value="tslot">T-Slot Key</option>
+          <option value="teeth">Finger Teeth</option>
+          <option value="wave">Wave Joint</option>
+        </select>
+      </label>
+
       <div className="wk-section-title">Position ({unit})</div>
       <NumField
         label="X"
@@ -271,6 +291,36 @@ function ConnectorEditor(props: {
         raw
         onCommit={(deg) => updateConnector(c.id, { orientation: deg })}
       />
+      <div className="wk-field" style={{ justifyContent: "flex-end", gap: 4, marginTop: -2, marginBottom: 4 }}>
+        <button
+          type="button"
+          className="wk-btn wk-btn--ghost"
+          style={{ padding: "2px 6px", fontSize: 11 }}
+          onClick={() => rotateConnector(c.id, -90)}
+          title="Rotate -90°"
+        >
+          ↺ 90°
+        </button>
+        <button
+          type="button"
+          className="wk-btn wk-btn--ghost"
+          style={{ padding: "2px 6px", fontSize: 11 }}
+          onClick={() => rotateConnector(c.id, 90)}
+          title="Rotate +90°"
+        >
+          ↻ 90°
+        </button>
+        <button
+          type="button"
+          className="wk-btn wk-btn--ghost"
+          style={{ padding: "2px 6px", fontSize: 11 }}
+          onClick={() => rotateConnector(c.id, 180)}
+          title="Rotate 180°"
+        >
+          180°
+        </button>
+      </div>
+
 
       <div className="wk-section-title">Size ({unit})</div>
       <NumField

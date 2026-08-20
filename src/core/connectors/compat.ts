@@ -404,6 +404,18 @@ export function checkCompatibility(a: Side, b: Side): CompatResult {
     };
   }
 
+  // Custom pattern matching check (e.g. Dovetail must mate with Dovetail, Puzzle with Puzzle)
+  const patternA = ca.pattern ?? "standard";
+  const patternB = cb.pattern ?? "standard";
+  if (patternA !== patternB && !whitelisted) {
+    return {
+      status: "invalid",
+      score: 0.1,
+      reason: `Pattern mismatch: A ${patternA} joint pattern requires a matching ${patternA} socket/plug (found ${patternB}).`,
+    };
+  }
+
+
   const size = evaluateSize(a, b);
   const thick = evaluateThickness(a, b);
 

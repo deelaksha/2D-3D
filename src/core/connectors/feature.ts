@@ -5,15 +5,14 @@
  *  - a NEUTRAL feature (magnet/hinge/surface) changes nothing
  *
  * The insert's plug and the receiver's socket use the SAME footprint (round for
- * peg/dowel/hole, rectangular otherwise) so a male plug exactly fills the female
- * socket it mates with. The plug is pushed OUT along the connector's orientation
- * so it visibly protrudes past the board edge; the socket is centred on the edge.
+ * peg/dowel/hole, rectangular or custom pattern for dovetail/puzzle/tslot/teeth)
+ * so a male plug exactly fills the female socket it mates with.
  */
-import type { BooleanOp, Connector, ConnectorRole, ConnectorType, Shape } from "../model/types";
+import type { BooleanOp, Connector, ConnectorRole, ConnectorType, Shape, ShapeKind } from "../model/types";
 import { makeShape } from "../model/defaults";
 import { connectorFamily } from "./compat";
 
-/** Round features mate by diameter; everything else uses a rectangular footprint. */
+/** Round features mate by diameter; everything else uses a rectangular or custom pattern footprint. */
 const ROUND_TYPES: readonly ConnectorType[] = ["peg", "dowel", "hole"];
 
 /** The default role for a freshly-placed connector, from its type's family. */
@@ -47,10 +46,27 @@ export function connectorFeature(c: Connector): { op: BooleanOp; shape: Shape } 
   if (role === "neutral") return null;
 
   const { w, h, round } = footprint(c);
-  const kind = round ? "circle" : c.type === "slot" ? "slot" : "rect";
+  const pattern = c.pattern ?? "standard";
+
+  let kind: ShapeKind = round ? "circle" : c.type === "slot" ? "slot" : "rect";
+  let radius: number | undefined = undefined;
+
+  // Custom Pattern Shape Mapping
+  if (pattern === "dovetail") {
+    kind = "trapezoid";
+  } else if (pattern === "puzzle") {
+    kind = "capsule";
+    radius = Math.min(w, h) / 2;
+  } else if (pattern === "tslot") {
+    kind = "slot";
+  } else if (pattern === "wave") {
+    kind = "roundedRect";
+    radius = Math.min(w, h) / 3;
+  } else if (pattern === "teeth") {
+    kind = "rect";
+  }
 
   // For an insert, push the plug outward along the connector's facing direction
-  // so it pokes out past the edge instead of sitting inside the board.
   let cx = c.position.x;
   let cy = c.position.y;
   if (role === "insert") {
@@ -66,6 +82,8 @@ export function connectorFeature(c: Connector): { op: BooleanOp; shape: Shape } 
     width: w,
     height: h,
     rotation: round ? 0 : c.orientation,
+    radius,
   });
+
   return { op: role === "receiver" ? "subtract" : "union", shape };
 }
