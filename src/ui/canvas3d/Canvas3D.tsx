@@ -880,8 +880,9 @@ export default function Canvas3D(): JSX.Element {
                     className="wk-3d-library-card"
                     draggable={true}
                     onDragStart={(e) => e.dataTransfer.setData("text/plain", p.id)}
-                    style={{ cursor: "grab" }}
-                    title="Drag and drop onto 3D viewport to place"
+                    onClick={() => handleAddPartToScene(p.id)}
+                    style={{ cursor: "pointer" }}
+                    title="Click or drag onto 3D viewport to place"
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ fontWeight: 700, fontSize: 13, color: "var(--wk-ink)" }}>{p.name}</span>
@@ -902,34 +903,9 @@ export default function Canvas3D(): JSX.Element {
                     </div>
                     {/* Visual Naked-Eye 3D/2D Object Thumbnail Preview */}
                     <PartThumbnail part={p} materialColor={mat?.color ?? "#c8a25a"} />
-
-                    <button
-                      type="button"
-                      className="wk-btn wk-3d-add-btn"
-                      style={{
-                        marginTop: 4,
-                        padding: "6px 12px",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        justifyContent: "center",
-                        background: "#ef8c3b",
-                        color: "#ffffff",
-                        border: "none",
-                        borderRadius: "var(--wk-r1)",
-                        cursor: "pointer",
-                        boxShadow: "0 2px 6px rgba(239, 140, 59, 0.4)",
-                      }}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleAddPartToScene(p.id);
-                      }}
-                    >
-                      + Add to 3D Scene
-                    </button>
                   </div>
                 );
+
               })
             )}
           </div>
