@@ -19,12 +19,15 @@ import { useProject } from "@/core/store/store";
 import {
   addConnection,
   clear3DScene,
+  createPart,
   placeAllParts,
   placePart,
   removeConnection,
   rotateConnector,
+  setPartMaterial,
   unplacePart,
 } from "@/core/store/actions";
+
 import { checkCompatibility } from "@/core/connectors/compat";
 import { materialOf } from "@/core/model/defaults";
 import {
@@ -559,17 +562,8 @@ export default function Canvas3D(): JSX.Element {
 
   const handleDropPartOnCanvas = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const partId = e.dataTransfer.getData("text/plain");
-    if (!partId) return;
-
-    const p = project.parts.find((x) => x.id === partId);
-    if (!p) return;
-
     const v = viewerRef.current;
-    if (!v || !mountRef.current) {
-      handleAddPartToScene(partId);
-      return;
-    }
+    if (!v || !mountRef.current) return;
 
     const rect = mountRef.current.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -581,14 +575,49 @@ export default function Canvas3D(): JSX.Element {
     const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
     const targetPt = new THREE.Vector3();
     raycaster.ray.intersectPlane(plane, targetPt);
+    const dropPos = targetPt ? { x: Math.round(targetPt.x), y: Math.round(targetPt.y), z: 0 } : { x: 0, y: 0, z: 0 };
 
-    const dropPos = targetPt
-      ? { x: Math.round(targetPt.x), y: Math.round(targetPt.y), z: 0 }
-      : { x: p.transform.x, y: -p.transform.y, z: 0 };
+    // Check if dragging a Material
+    const materialId = e.dataTransfer.getData("materialId");
+    if (materialId) {
+      const mat = project.materials.find((m) => m.id === materialId);
+      if (!mat) return;
 
-    placePart(partId, dropPos, { x: 0, y: 0, z: p.transform.rotation });
-    showToast(`Dragged & placed ${p.name} in 3D scene!`);
+      // Check if dropped onto an existing 3D part
+      if (v.group) {
+        const intersects = raycaster.intersectObjects(v.group.children, true);
+        for (const hit of intersects) {
+          const data = hit.object.userData;
+          if (data && data.partId) {
+            setPartMaterial(data.partId, materialId);
+            showToast(`Applied ${mat.name} material to ${data.partName}!`);
+            return;
+          }
+        }
+      }
+
+      // Dropped onto canvas ground -> create a new part made of this material!
+      const newPartId = createPart(`${mat.name} Board`, {
+        materialId,
+        width: 120,
+        height: 80,
+        thickness: mat.thickness,
+      });
+      placePart(newPartId, dropPos, { x: 0, y: 0, z: 0 });
+      showToast(`Created & staged new ${mat.name} board in 3D!`);
+      return;
+    }
+
+    // Check if dragging a Part
+    const partId = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("partId");
+    if (partId) {
+      const p = project.parts.find((x) => x.id === partId);
+      if (!p) return;
+      placePart(partId, dropPos, { x: 0, y: 0, z: p.transform.rotation });
+      showToast(`Dragged & placed ${p.name} in 3D scene!`);
+    }
   };
+
 
 
   const setCameraPreset = (preset: "iso" | "top" | "front" | "side" | "fit") => {
@@ -870,7 +899,14 @@ export default function Canvas3D(): JSX.Element {
           {libraryTab === "materials" && (
             <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
               {project.materials.map((m) => (
-                <div key={m.id} className="wk-3d-library-card">
+                <div
+                  key={m.id}
+                  className="wk-3d-library-card"
+                  draggable={true}
+                  onDragStart={(e) => e.dataTransfer.setData("materialId", m.id)}
+                  style={{ cursor: "grab" }}
+                  title="Drag onto a 3D part to change its material, or drag onto ground to create a new board"
+                >
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ width: 14, height: 14, borderRadius: "50%", background: m.color, border: "1px solid var(--wk-border)" }} />
                     <span style={{ fontWeight: 700, fontSize: 13 }}>{m.name}</span>
@@ -879,13 +915,45 @@ export default function Canvas3D(): JSX.Element {
                     </span>
                   </div>
                   <div style={{ fontSize: 11.5, color: "var(--wk-ink-soft)", display: "flex", justifyContent: "space-between", marginTop: 2 }}>
-                    <span>Default Thickness: <strong>{m.thickness} mm</strong></span>
+                    <span>Stock Thickness: <strong>{m.thickness} mm</strong></span>
                     {m.density && <span>Density: {m.density} g/cm³</span>}
                   </div>
+                  <button
+                    type="button"
+                    className="wk-btn"
+                    style={{
+                      marginTop: 4,
+                      padding: "5px 10px",
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      justifyContent: "center",
+                      background: "var(--wk-surface)",
+                      color: "var(--wk-ink)",
+                      border: "1px solid var(--wk-border-strong)",
+                      borderRadius: "var(--wk-r1)",
+                      cursor: "pointer",
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const newPartId = createPart(`${m.name} Board`, {
+                        materialId: m.id,
+                        width: 120,
+                        height: 80,
+                        thickness: m.thickness,
+                      });
+                      placePart(newPartId, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
+                      showToast(`Created & staged new ${m.name} board in 3D!`);
+                    }}
+                  >
+                    + Create & Stage {m.name} Board
+                  </button>
                 </div>
               ))}
             </div>
           )}
+
 
           {/* Batch Staging Controls Footer */}
           <div style={{ borderTop: "1px solid var(--wk-border)", paddingTop: 8, marginTop: 6, display: "flex", gap: 6 }}>
