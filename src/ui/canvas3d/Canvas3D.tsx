@@ -40,7 +40,6 @@ import {
 } from "./build3d";
 
 export type EnvTheme = "dark" | "workshop" | "light" | "cyber";
-export type LibraryTab = "library" | "scene";
 
 interface HoveredInfo {
   isConnector?: boolean;
@@ -141,7 +140,7 @@ export default function Canvas3D(): JSX.Element {
 
   // 3D Library Sidebar Controls
   const [showLibrarySidebar, setShowLibrarySidebar] = useState<boolean>(true);
-  const [libraryTab, setLibraryTab] = useState<LibraryTab>("library");
+
 
   /* ---- Placed vs Unplaced Parts Calculations ---- */
   const placedPartIds = new Set(
@@ -750,142 +749,87 @@ export default function Canvas3D(): JSX.Element {
             </button>
           </div>
 
-          <div className="wk-3d-btn-group" style={{ marginBottom: 10 }}>
-            <button
-              type="button"
-              className={`wk-3d-btn ${libraryTab === "library" ? "wk-3d-btn--active" : ""}`}
-              onClick={() => setLibraryTab("library")}
-              style={{ flex: 1, justifyContent: "center" }}
-            >
-              Library ({unplacedParts.length})
-            </button>
-            <button
-              type="button"
-              className={`wk-3d-btn ${libraryTab === "scene" ? "wk-3d-btn--active" : ""}`}
-              onClick={() => setLibraryTab("scene")}
-              style={{ flex: 1, justifyContent: "center" }}
-            >
-              In 3D ({placedParts.length})
-            </button>
+          {/* Unplaced Library Parts List */}
+          <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+            {unplacedParts.length === 0 ? (
+              <div style={{ color: "var(--wk-ink-faint)", fontSize: 12, textAlign: "center", padding: 16 }}>
+                All designed parts are currently staged in your 3D scene!
+                <button
+                  type="button"
+                  className="wk-btn wk-btn--ghost"
+                  style={{ marginTop: 8, fontSize: 11, color: "var(--wk-accent-ink)", width: "100%", justifyContent: "center" }}
+                  onClick={() => clear3DScene()}
+                >
+                  ↺ Reset & Stage One-by-One
+                </button>
+              </div>
+            ) : (
+              unplacedParts.map((p) => {
+                const mat = materialOf(project, p.materialId);
+                return (
+                  <div
+                    key={p.id}
+                    className="wk-3d-library-card"
+                    draggable={true}
+                    onDragStart={(e) => e.dataTransfer.setData("text/plain", p.id)}
+                    style={{ cursor: "grab" }}
+                    title="Drag and drop onto 3D viewport to place"
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: "var(--wk-ink)" }}>{p.name}</span>
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          fontSize: 11,
+                          padding: "2px 6px",
+                          borderRadius: "var(--wk-r-pill)",
+                          background: "var(--wk-surface-3)",
+                        }}
+                      >
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: mat?.color ?? "#c8a25a" }} />
+                        {mat?.name ?? "Wood"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--wk-ink-soft)", display: "flex", gap: 12 }}>
+                      <span>Size: {Math.round(p.width)} × {Math.round(p.height)} mm</span>
+                      <span>Thickness: {p.thickness} mm</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--wk-ink-faint)" }}>
+                      Connectors: {p.connectors.length} ({p.connectors.map((c) => c.type).join(", ") || "none"})
+                    </div>
+                    <button
+                      type="button"
+                      className="wk-btn wk-3d-add-btn"
+                      style={{
+                        marginTop: 4,
+                        padding: "6px 12px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        justifyContent: "center",
+                        background: "#ef8c3b",
+                        color: "#ffffff",
+                        border: "none",
+                        borderRadius: "var(--wk-r1)",
+                        cursor: "pointer",
+                        boxShadow: "0 2px 6px rgba(239, 140, 59, 0.4)",
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAddPartToScene(p.id);
+                      }}
+                    >
+                      + Add to 3D Scene
+                    </button>
+                  </div>
+                );
+              })
+            )}
           </div>
 
-
-          {/* Tab 1: Unplaced Library Parts */}
-          {libraryTab === "library" && (
-            <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
-              {unplacedParts.length === 0 ? (
-                <div style={{ color: "var(--wk-ink-faint)", fontSize: 12, textAlign: "center", padding: 16 }}>
-                  All designed parts are currently staged in your 3D scene!
-                  <button
-                    type="button"
-                    className="wk-btn wk-btn--ghost"
-                    style={{ marginTop: 8, fontSize: 11, color: "var(--wk-accent-ink)", width: "100%", justifyContent: "center" }}
-                    onClick={() => clear3DScene()}
-                  >
-                    ↺ Reset & Stage One-by-One
-                  </button>
-                </div>
-              ) : (
-                unplacedParts.map((p) => {
-                  const mat = materialOf(project, p.materialId);
-                  return (
-                    <div
-                      key={p.id}
-                      className="wk-3d-library-card"
-                      draggable={true}
-                      onDragStart={(e) => e.dataTransfer.setData("text/plain", p.id)}
-                      style={{ cursor: "grab" }}
-                      title="Drag and drop onto 3D viewport to place"
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontWeight: 700, fontSize: 13, color: "var(--wk-ink)" }}>{p.name}</span>
-                        <span
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 4,
-                            fontSize: 11,
-                            padding: "2px 6px",
-                            borderRadius: "var(--wk-r-pill)",
-                            background: "var(--wk-surface-3)",
-                          }}
-                        >
-                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: mat?.color ?? "#c8a25a" }} />
-                          {mat?.name ?? "Wood"}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 11, color: "var(--wk-ink-soft)", display: "flex", gap: 12 }}>
-                        <span>Size: {Math.round(p.width)} × {Math.round(p.height)} mm</span>
-                        <span>Thickness: {p.thickness} mm</span>
-                      </div>
-                      <div style={{ fontSize: 11, color: "var(--wk-ink-faint)" }}>
-                        Connectors: {p.connectors.length} ({p.connectors.map((c) => c.type).join(", ") || "none"})
-                      </div>
-                      <button
-                        type="button"
-                        className="wk-btn wk-3d-add-btn"
-                        style={{
-                          marginTop: 4,
-                          padding: "6px 12px",
-                          fontSize: 12,
-                          fontWeight: 700,
-                          justifyContent: "center",
-                          background: "#ef8c3b",
-                          color: "#ffffff",
-                          border: "none",
-                          borderRadius: "var(--wk-r1)",
-                          cursor: "pointer",
-                          boxShadow: "0 2px 6px rgba(239, 140, 59, 0.4)",
-                        }}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleAddPartToScene(p.id);
-                        }}
-                      >
-                        + Add to 3D Scene
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          )}
-
-          {/* Tab 2: Placed Parts in Scene */}
-          {libraryTab === "scene" && (
-            <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
-              {placedParts.length === 0 ? (
-                <div style={{ color: "var(--wk-ink-faint)", fontSize: 12, textAlign: "center", padding: 16 }}>
-                  No parts placed in 3D yet. Add parts from the Library tab!
-                </div>
-              ) : (
-                placedParts.map((p) => {
-                  const mat = materialOf(project, p.materialId);
-                  return (
-                    <div key={p.id} className="wk-3d-library-card">
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontWeight: 700, fontSize: 13, color: "var(--wk-ink)" }}>{p.name}</span>
-                        <span style={{ fontSize: 11, color: "var(--wk-green)", fontWeight: 600 }}>✓ In Scene</span>
-                      </div>
-                      <div style={{ fontSize: 11, color: "var(--wk-ink-soft)" }}>
-                        Material: {mat?.name ?? "Wood"} ({p.thickness} mm)
-                      </div>
-                      <button
-                        type="button"
-                        className="wk-btn wk-btn--ghost"
-                        style={{ marginTop: 2, padding: "3px 8px", fontSize: 11, color: "var(--wk-red)", justifyContent: "center" }}
-                        onClick={() => unplacePart(p.id)}
-                      >
-                        Remove from 3D
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          )}
 
 
 
