@@ -61,6 +61,12 @@
   --wk-font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --wk-mono: "SF Mono", ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo, monospace;
 
+  /* Glassmorphism & Floating HUD tokens */
+  --wk-glass-bg: rgba(255, 255, 255, 0.78);
+  --wk-glass-border: rgba(255, 255, 255, 0.5);
+  --wk-glass-shadow: 0 8px 32px rgba(15, 23, 42, 0.12);
+  --wk-glass-blur: blur(16px) saturate(180%);
+
   --wk-topbar-h: 48px;
   --wk-statusbar-h: 30px;
   --wk-left-w: 236px;
@@ -70,29 +76,34 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --wk-bg: #16181d;
-    --wk-surface: #1e2127;
-    --wk-surface-2: #23262d;
-    --wk-surface-3: #2a2e36;
-    --wk-panel: #1e2127;
-    --wk-border: #2e333c;
-    --wk-border-strong: #3d434e;
-    --wk-ink: #eef0f3;
-    --wk-ink-soft: #a9b0bc;
-    --wk-ink-faint: #727a86;
-    --wk-accent: #f2954a;
-    --wk-accent-soft: #3a2a17;
-    --wk-accent-ink: #f4ad6b;
-    --wk-blue-soft: #1c2b44;
-    --wk-green-soft: #16321f;
-    --wk-red-soft: #3d211f;
-    --wk-amber-soft: #3a2f14;
-    --wk-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --wk-shadow-2: 0 6px 18px rgba(0, 0, 0, 0.5);
-    --wk-shadow-3: 0 18px 48px rgba(0, 0, 0, 0.6);
-    --wk-c-tab: #35c07a;
-    --wk-c-slot: #5a9df8;
-    --wk-c-hole: #a88bf7;
-    --wk-c-peg: #f2954a;
+    --wk-bg: #0f1117;
+    --wk-surface: #171a23;
+    --wk-surface-2: #1e222d;
+    --wk-surface-3: #262b38;
+    --wk-panel: #171a23;
+    --wk-border: #282e3d;
+    --wk-border-strong: #384054;
+    --wk-ink: #f1f5f9;
+    --wk-ink-soft: #94a3b8;
+    --wk-ink-faint: #64748b;
+    --wk-accent: #f59e0b;
+    --wk-accent-soft: rgba(245, 158, 11, 0.15);
+    --wk-accent-ink: #fbbf24;
+    --wk-blue-soft: rgba(59, 130, 246, 0.15);
+    --wk-green-soft: rgba(34, 197, 94, 0.15);
+    --wk-red-soft: rgba(239, 68, 68, 0.15);
+    --wk-amber-soft: rgba(245, 158, 11, 0.15);
+    --wk-shadow-1: 0 2px 4px rgba(0, 0, 0, 0.4);
+    --wk-shadow-2: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --wk-shadow-3: 0 20px 50px rgba(0, 0, 0, 0.7);
+    --wk-c-tab: #22c55e;
+    --wk-c-slot: #3b82f6;
+    --wk-c-hole: #a855f7;
+    --wk-c-peg: #f59e0b;
+
+    --wk-glass-bg: rgba(23, 26, 35, 0.82);
+    --wk-glass-border: rgba(255, 255, 255, 0.08);
+    --wk-glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
   }
 }
+

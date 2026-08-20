@@ -343,3 +343,146 @@ button { font-family: inherit; }
   border-top: 1px solid var(--wk-border); max-height: 40%; overflow-y: auto; padding: 4px 0;
   background: var(--wk-surface-2); flex-shrink: 0;
 }
+
+/* ---- Modern 3D Studio Viewport HUD & Controls ---- */
+.wk-hud-glass {
+  background: var(--wk-glass-bg);
+  backdrop-filter: var(--wk-glass-blur);
+  -webkit-backdrop-filter: var(--wk-glass-blur);
+  border: 1px solid var(--wk-glass-border);
+  box-shadow: var(--wk-glass-shadow);
+  border-radius: var(--wk-r2);
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: var(--wk-s2);
+  color: var(--wk-ink);
+  transition: var(--wk-transition);
+}
+
+.wk-3d-toolbar {
+  position: absolute;
+  bottom: var(--wk-s4);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+}
+
+.wk-3d-toolbar-top {
+  position: absolute;
+  top: var(--wk-s3);
+  left: var(--wk-s3);
+  z-index: 20;
+}
+
+.wk-3d-toolbar-right {
+  position: absolute;
+  top: var(--wk-s3);
+  right: var(--wk-s3);
+  z-index: 20;
+}
+
+.wk-3d-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 3px;
+  border-radius: var(--wk-r1);
+}
+@media (prefers-color-scheme: dark) {
+  .wk-3d-btn-group {
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+
+.wk-3d-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: calc(var(--wk-r1) - 2px);
+  border: none;
+  background: transparent;
+  color: var(--wk-ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--wk-transition);
+  white-space: nowrap;
+}
+.wk-3d-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--wk-ink);
+}
+@media (prefers-color-scheme: dark) {
+  .wk-3d-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+.wk-3d-btn--active {
+  background: var(--wk-surface) !important;
+  color: var(--wk-accent-ink) !important;
+  box-shadow: var(--wk-shadow-1);
+}
+
+.wk-3d-slider-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.wk-3d-slider-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--wk-ink-faint);
+}
+
+.wk-3d-range {
+  accent-color: var(--wk-accent);
+  width: 90px;
+  cursor: pointer;
+}
+
+.wk-3d-inspect-tooltip {
+  position: absolute;
+  z-index: 30;
+  pointer-events: none;
+  background: var(--wk-surface);
+  border: 1px solid var(--wk-border-strong);
+  box-shadow: var(--wk-shadow-3);
+  border-radius: var(--wk-r2);
+  padding: 10px 14px;
+  min-width: 180px;
+  transform: translate(-50%, -120%);
+  animation: wk-pop 120ms ease-out;
+}
+
+.wk-3d-inspect-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--wk-ink);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wk-3d-inspect-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11.5px;
+  color: var(--wk-ink-soft);
+  margin-top: 3px;
+}
+
+.wk-3d-inspect-val {
+  font-weight: 600;
+  color: var(--wk-ink);
+  font-family: var(--wk-mono);
+}
+
