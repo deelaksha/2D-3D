@@ -120,7 +120,115 @@ const ENV_CONFIGS: Record<
   },
 };
 
+function adjustColor(hex: string, amt: number): string {
+  let usePound = false;
+  if (hex[0] === "#") {
+    hex = hex.slice(1);
+    usePound = true;
+  }
+  const num = parseInt(hex, 16);
+  if (isNaN(num)) return hex;
+  let r = (num >> 16) + amt;
+  if (r > 255) r = 255;
+  else if (r < 0) r = 0;
+  let b = ((num >> 8) & 0x00ff) + amt;
+  if (b > 255) b = 255;
+  else if (b < 0) b = 0;
+  let g = (num & 0x0000ff) + amt;
+  if (g > 255) g = 255;
+  else if (g < 0) g = 0;
+  return (usePound ? "#" : "") + (g | (b << 8) | (r << 16)).toString(16).padStart(6, "0");
+}
+
+function PartThumbnail({ part, materialColor }: { part: any; materialColor: string }): JSX.Element {
+  const aspect = part.height > 0 ? part.width / part.height : 1.5;
+  let svgW = 110;
+  let svgH = 65;
+
+  if (aspect > 1.8) {
+    svgW = 120;
+    svgH = 50;
+  } else if (aspect < 0.8) {
+    svgW = 55;
+    svgH = 75;
+  } else {
+    svgW = Math.min(110, Math.max(60, 65 * aspect));
+    svgH = Math.min(75, Math.max(45, 65 / aspect));
+  }
+
+  const pad = 12;
+  const viewBoxW = svgW + pad * 2;
+  const viewBoxH = svgH + pad * 2;
+  const rectX = pad;
+  const rectY = pad;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        padding: "10px 0",
+        background: "var(--wk-surface-3)",
+        borderRadius: "var(--wk-r2)",
+        border: "1px solid var(--wk-border)",
+        margin: "6px 0",
+      }}
+    >
+      <svg width={viewBoxW} height={viewBoxH} viewBox={`0 0 ${viewBoxW} ${viewBoxH}`} style={{ overflow: "visible" }}>
+        <defs>
+          <filter id={`shd-${part.id}`} x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="2" dy="3" stdDeviation="2" floodColor="#000000" floodOpacity="0.3" />
+          </filter>
+          <linearGradient id={`grad-${part.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor={materialColor} />
+            <stop offset="100%" stopColor={adjustColor(materialColor, -25)} />
+          </linearGradient>
+        </defs>
+
+        {/* 3D Extruded Depth Bevel */}
+        <rect
+          x={rectX + 2.5}
+          y={rectY + 3.5}
+          width={svgW}
+          height={svgH}
+          rx={4}
+          fill={adjustColor(materialColor, -50)}
+        />
+
+        {/* Main Panel Shape */}
+        <rect
+          x={rectX}
+          y={rectY}
+          width={svgW}
+          height={svgH}
+          rx={4}
+          fill={`url(#grad-${part.id})`}
+          stroke="rgba(0,0,0,0.35)"
+          strokeWidth="1.2"
+          filter={`url(#shd-${part.id})`}
+        />
+
+        {/* Connector Notch Indicators on Edges */}
+        {part.connectors?.map((c: any) => {
+          const cx = rectX + (c.position.x / (part.width || 1)) * svgW;
+          const cy = rectY + (c.position.y / (part.height || 1)) * svgH;
+          const isInsert = c.role === "insert" || c.type === "tab" || c.type === "peg";
+          const dotColor = isInsert ? "#22c55e" : c.role === "receiver" || c.type === "slot" ? "#3b82f6" : "#f59e0b";
+
+          return (
+            <g key={c.id}>
+              <circle cx={cx} cy={cy} r={4} fill={dotColor} stroke="#ffffff" strokeWidth="1.2" />
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 export default function Canvas3D(): JSX.Element {
+
   const project = useProject();
   const mountRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
@@ -792,13 +900,9 @@ export default function Canvas3D(): JSX.Element {
                         {mat?.name ?? "Wood"}
                       </span>
                     </div>
-                    <div style={{ fontSize: 11, color: "var(--wk-ink-soft)", display: "flex", gap: 12 }}>
-                      <span>Size: {Math.round(p.width)} × {Math.round(p.height)} mm</span>
-                      <span>Thickness: {p.thickness} mm</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--wk-ink-faint)" }}>
-                      Connectors: {p.connectors.length} ({p.connectors.map((c) => c.type).join(", ") || "none"})
-                    </div>
+                    {/* Visual Naked-Eye 3D/2D Object Thumbnail Preview */}
+                    <PartThumbnail part={p} materialColor={mat?.color ?? "#c8a25a"} />
+
                     <button
                       type="button"
                       className="wk-btn wk-3d-add-btn"
