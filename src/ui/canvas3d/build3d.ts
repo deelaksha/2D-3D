@@ -3,12 +3,15 @@
  * for the 3D preview. Read-only: each part's 2D outline is extruded by its
  * thickness, styled with procedural PBR materials (realistic wood grain, satin,
  * wireframe, or X-ray modes), tagged with inspect metadata, and prepared for
- * exploded assembly views.
+ * exploded assembly views, interactive 3D connector snapping, and mating lines.
  */
 import * as THREE from "three";
-import type { Part, Project, Vec2 } from "@/core/model/types";
+import type { Connection, Connector, Part, Placement, Project, Vec2, Vec3 } from "@/core/model/types";
 import { partOutlineWorld, partModifiersWorld } from "@/core/geometry/world";
 import { materialOf } from "@/core/model/defaults";
+import { checkCompatibility, connectorFamily } from "@/core/connectors/compat";
+import { defaultRole } from "@/core/connectors/feature";
+import { addConnection, placePart } from "@/core/store/actions";
 
 export type RenderMode = "textured" | "solid" | "wireframe" | "xray";
 
@@ -137,7 +140,46 @@ export function createPartMaterial(colorHex: string, renderMode: RenderMode = "t
   }
 }
 
-/** One part → a 3D object (extruded board + plugs + crisp edges + metadata). */
+/** Build interactive 3D Connector sphere markers on a part group */
+export function buildConnectorNodes3D(part: Part, thickness: number, group: THREE.Group): void {
+  for (const c of part.connectors) {
+    const role = c.role ?? defaultRole(c.type);
+    let colorHex = 0xf59e0b; // Amber neutral
+    if (role === "insert" || connectorFamily(c.type) === "insert") {
+      colorHex = 0x22c55e; // Green insert
+    } else if (role === "receiver" || connectorFamily(c.type) === "receive") {
+      colorHex = 0x3b82f6; // Blue receiver
+    }
+
+    const sphereGeo = new THREE.SphereGeometry(Math.max(4, Math.min(8, (c.width || 10) / 2)), 16, 16);
+    const sphereMat = new THREE.MeshStandardMaterial({
+      color: colorHex,
+      emissive: colorHex,
+      emissiveIntensity: 0.45,
+      roughness: 0.2,
+      metalness: 0.2,
+    });
+
+    const marker = new THREE.Mesh(sphereGeo, sphereMat);
+    marker.position.set(c.position.x, -c.position.y, thickness / 2 + 3);
+    marker.name = `connector_${c.id}`;
+
+    marker.userData = {
+      isConnector: true,
+      connectorId: c.id,
+      connectorName: c.name,
+      connectorType: c.type,
+      connectorRole: role,
+      partId: part.id,
+      partName: part.name,
+      localPos: new THREE.Vector3(c.position.x, -c.position.y, thickness / 2),
+    };
+
+    group.add(marker);
+  }
+}
+
+/** One part → a 3D object (extruded board + plugs + crisp edges + metadata + connectors). */
 export function buildPartObject(
   project: Project,
   part: Part,
@@ -168,6 +210,7 @@ export function buildPartObject(
     materialName: matObj?.name ?? "Plywood",
     colorHex,
     originalPosition: new THREE.Vector3(0, 0, 0),
+    originalRotation: new THREE.Euler(0, 0, 0),
     explodeVector: new THREE.Vector3(0, 0, 0),
   };
 
@@ -198,7 +241,7 @@ export function buildPartObject(
     group.add(plugMesh);
   }
 
-  // Crisp darker edge outline for crisp visual definition
+  // Crisp darker edge outline for visual definition
   if (renderMode !== "wireframe") {
     const edges = new THREE.EdgesGeometry(baseGeo, 30);
     const lineMat = new THREE.LineBasicMaterial({
@@ -209,19 +252,37 @@ export function buildPartObject(
     group.add(new THREE.LineSegments(edges, lineMat));
   }
 
+  // Add 3D Connector Nodes
+  buildConnectorNodes3D(part, thickness, group);
+
   return group;
 }
 
-/** Whole project → a group of extruded parts (visible parts only). */
+/** Whole project → a group of extruded parts (placed or connected in 3D). */
 export function buildProjectObject(
   project: Project,
   renderMode: RenderMode = "textured"
 ): THREE.Group {
   const root = new THREE.Group();
+  const partGroupMap = new Map<string, THREE.Group>();
+
   for (const part of project.parts) {
     if (!part.visible) continue;
     const o = buildPartObject(project, part, renderMode);
-    if (o) root.add(o);
+    if (o) {
+      // Check saved 3D placements
+      const placement = project.assembly.placements.find((pl) => pl.partId === part.id);
+      if (placement && placement.placed) {
+        o.position.set(placement.position.x, placement.position.y, placement.position.z);
+        o.rotation.set(
+          THREE.MathUtils.degToRad(placement.rotation.x),
+          THREE.MathUtils.degToRad(placement.rotation.y),
+          THREE.MathUtils.degToRad(placement.rotation.z)
+        );
+      }
+      root.add(o);
+      partGroupMap.set(part.id, o);
+    }
   }
 
   // Calculate explode vectors from collective center of mass
@@ -238,10 +299,136 @@ export function buildProjectObject(
       explodeDir.normalize();
       child.userData.explodeVector = explodeDir;
       child.userData.originalPosition = child.position.clone();
+      child.userData.originalRotation = child.rotation.clone();
     });
   }
 
+  // Build glowing 3D connection lines between connected joints
+  const linesGroup = buildConnectionLines3D(project, partGroupMap);
+  root.add(linesGroup);
+
   return root;
+}
+
+/** Build glowing 3D spring/laser lines between connected joints */
+export function buildConnectionLines3D(
+  project: Project,
+  partGroupMap: Map<string, THREE.Group>
+): THREE.Group {
+  const linesGroup = new THREE.Group();
+  linesGroup.name = "connection_lines";
+
+  for (const cnx of project.assembly.connections) {
+    const sourceGroup = partGroupMap.get(cnx.sourcePart);
+    const targetGroup = partGroupMap.get(cnx.targetPart);
+    if (!sourceGroup || !targetGroup) continue;
+
+    const sourcePart = project.parts.find((p) => p.id === cnx.sourcePart);
+    const targetPart = project.parts.find((p) => p.id === cnx.targetPart);
+    if (!sourcePart || !targetPart) continue;
+
+    const sourceConn = sourcePart.connectors.find((c) => c.id === cnx.sourceConnector);
+    const targetConn = targetPart.connectors.find((c) => c.id === cnx.targetConnector);
+    if (!sourceConn || !targetConn) continue;
+
+    // Local positions
+    const posA = new THREE.Vector3(sourceConn.position.x, -sourceConn.position.y, sourcePart.thickness / 2);
+    const posB = new THREE.Vector3(targetConn.position.x, -targetConn.position.y, targetPart.thickness / 2);
+
+    // Transform to World
+    posA.applyMatrix4(sourceGroup.matrixWorld);
+    posB.applyMatrix4(targetGroup.matrixWorld);
+
+    const colorHex = cnx.status === "valid" ? 0x22c55e : cnx.status === "possible" ? 0xf59e0b : 0xef4444;
+
+    const points = [posA, posB];
+    const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+    const lineMat = new THREE.LineDashedMaterial({
+      color: colorHex,
+      dashSize: 4,
+      gapSize: 2,
+      linewidth: 2,
+    });
+    const line = new THREE.Line(lineGeo, lineMat);
+    line.computeLineDistances();
+    linesGroup.add(line);
+  }
+
+  return linesGroup;
+}
+
+/**
+ * 3D Mating Calculation Engine:
+ * Calculates the target part's 3D position & rotation to mate flush onto source part.
+ */
+export function calculateMatingTransform(
+  sourcePart: Part,
+  sourceConn: Connector,
+  targetPart: Part,
+  targetConn: Connector,
+  sourcePlacement?: Placement
+): { position: Vec3; rotation: Vec3 } {
+  // Source 3D position & orientation
+  const sourcePos = sourcePlacement?.position ?? { x: sourcePart.transform.x, y: -sourcePart.transform.y, z: 0 };
+  const sourceRot = sourcePlacement?.rotation ?? { x: 0, y: 0, z: sourcePart.transform.rotation };
+
+  // Decide if perpendicular join (e.g. wall onto base: tab in slot, edge tab)
+  const isPerpendicular =
+    (sourceConn.type === "slot" && targetConn.type === "tab") ||
+    (sourceConn.type === "hole" && targetConn.type === "peg") ||
+    (sourceConn.type === "edge" || targetConn.type === "edge");
+
+  const targetRotZ = (sourceRot.z + (sourceConn.orientation - targetConn.orientation)) % 360;
+  const targetRotX = isPerpendicular ? 90 : sourceRot.x;
+  const targetRotY = sourceRot.y;
+
+  // Offset position so target connector snaps directly to source connector
+  const sourceConnWorldX = sourcePos.x + sourceConn.position.x;
+  const sourceConnWorldY = sourcePos.y - sourceConn.position.y;
+  const sourceConnWorldZ = sourcePos.z + sourcePart.thickness;
+
+  const targetPosX = sourceConnWorldX - targetConn.position.x;
+  const targetPosY = sourceConnWorldY + targetConn.position.y;
+  const targetPosZ = isPerpendicular ? sourceConnWorldZ : sourcePos.z;
+
+  return {
+    position: { x: targetPosX, y: targetPosY, z: targetPosZ },
+    rotation: { x: targetRotX, y: targetRotY, z: targetRotZ },
+  };
+}
+
+/**
+ * Auto-Connect Engine:
+ * Scans project for complementary connector pairs across parts and connects them in 3D.
+ */
+export function autoConnectProject(project: Project): void {
+  for (let i = 0; i < project.parts.length; i++) {
+    const p1 = project.parts[i];
+    for (let j = i + 1; j < project.parts.length; j++) {
+      const p2 = project.parts[j];
+
+      for (const c1 of p1.connectors) {
+        for (const c2 of p2.connectors) {
+          const compat = checkCompatibility({ part: p1, connector: c1 }, { part: p2, connector: c2 });
+          if (compat.status === "valid" || compat.status === "possible") {
+            // Create connection
+            addConnection({
+              sourcePart: p1.id,
+              sourceConnector: c1.id,
+              targetPart: p2.id,
+              targetConnector: c2.id,
+              status: compat.status,
+              reason: compat.reason,
+            });
+
+            // Calculate 3D mating transform
+            const mating = calculateMatingTransform(p1, c1, p2, c2);
+            placePart(p2.id, mating.position, mating.rotation);
+          }
+        }
+      }
+    }
+  }
 }
 
 /** Updates part positions based on exploded view percentage (0.0 to 1.0) */

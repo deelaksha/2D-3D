@@ -1,34 +1,56 @@
 /**
- * Canvas3D — High-fidelity interactive 3D Studio viewport.
+ * Canvas3D — High-fidelity interactive 3D Studio viewport & 3D Mating Engine.
  * Features:
  * - Studio lighting & soft contact shadow ground.
  * - Multi-theme environment backgrounds (Dark Studio, Warm Workshop, Clean Light, Cyber).
  * - Render modes (Textured wood grain, Solid color, Wireframe, X-Ray transparent).
- * - Smooth camera damping, panning (Right click / Shift drag), orbiting & zoom.
+ * - Interactive 3D Connector Snapping & Click-to-Connect mating workflow.
+ * - Auto-Connect All matching joints engine.
+ * - Connections Management HUD Drawer.
  * - Viewport preset buttons (ISO, Top 2D, Front, Side, Fit view).
  * - Exploded assembly view slider (0% to 100% disassembly display).
  * - Auto-rotation presentation mode.
- * - Dynamic 3D raycasting with interactive part hover inspection tooltips.
  */
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { useProject } from "@/core/store/store";
 import {
-  buildProjectObject,
-  disposeObject,
+  addConnection,
+  placePart,
+  removeConnection,
+} from "@/core/store/actions";
+import { checkCompatibility } from "@/core/connectors/compat";
+import {
+  autoConnectProject,
   applyExplodeFactor,
+  buildProjectObject,
+  calculateMatingTransform,
+  disposeObject,
   type RenderMode,
 } from "./build3d";
 
 export type EnvTheme = "dark" | "workshop" | "light" | "cyber";
 
-interface HoveredPart {
+interface HoveredInfo {
+  isConnector?: boolean;
   name: string;
-  thickness: number;
-  material: string;
-  colorHex: string;
+  type?: string;
+  role?: string;
+  thickness?: number;
+  material?: string;
+  colorHex?: string;
+  partName?: string;
   screenX: number;
   screenY: number;
+}
+
+interface SelectedConnector {
+  connectorId: string;
+  partId: string;
+  partName: string;
+  connectorName: string;
+  type: string;
+  role: string;
 }
 
 interface Viewer {
@@ -99,7 +121,12 @@ export default function Canvas3D(): JSX.Element {
   const [explodeFactor, setExplodeFactor] = useState<number>(0);
   const [autoRotate, setAutoRotate] = useState<boolean>(false);
   const [showGrid, setShowGrid] = useState<boolean>(true);
-  const [hoveredPart, setHoveredPart] = useState<HoveredPart | null>(null);
+  const [hoveredInfo, setHoveredInfo] = useState<HoveredInfo | null>(null);
+
+  // 3D Mating & Connection Controls
+  const [selectedSourceConn, setSelectedSourceConn] = useState<SelectedConnector | null>(null);
+  const [showConnectionsPanel, setShowConnectionsPanel] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   /* ---- One-time scene & engine setup ---- */
   useEffect(() => {
@@ -150,12 +177,12 @@ export default function Canvas3D(): JSX.Element {
 
     // Dynamic Grid Floor
     const gridHelper = new THREE.GridHelper(
-      1200,
-      40,
+      1400,
+      44,
       ENV_CONFIGS.dark.gridCenter,
       ENV_CONFIGS.dark.grid
     );
-    gridHelper.rotation.x = Math.PI / 2; // Lie flat in X-Y plan
+    gridHelper.rotation.x = Math.PI / 2;
     gridHelper.position.z = -0.5;
     scene.add(gridHelper);
 
@@ -191,7 +218,6 @@ export default function Canvas3D(): JSX.Element {
       camera.far = r * 300;
       camera.updateProjectionMatrix();
 
-      // Set key light shadow frustum size dynamically
       keyLight.shadow.camera.left = -r * 2;
       keyLight.shadow.camera.right = r * 2;
       keyLight.shadow.camera.top = r * 2;
@@ -226,12 +252,16 @@ export default function Canvas3D(): JSX.Element {
     let isPan = false;
     let px = 0;
     let py = 0;
+    let downX = 0;
+    let downY = 0;
 
     const onDown = (e: PointerEvent) => {
       dragging = true;
       isPan = e.button === 2 || e.button === 1 || e.shiftKey;
       px = e.clientX;
       py = e.clientY;
+      downX = e.clientX;
+      downY = e.clientY;
       renderer.domElement.setPointerCapture(e.pointerId);
     };
 
@@ -243,7 +273,6 @@ export default function Canvas3D(): JSX.Element {
       py = e.clientY;
 
       if (isPan) {
-        // Pan parallel to view camera
         const panSpeed = spherical.radius * 0.0012;
         const right = new THREE.Vector3();
         const up = new THREE.Vector3();
@@ -251,7 +280,6 @@ export default function Canvas3D(): JSX.Element {
         targetGoal.addScaledVector(right, -dx * panSpeed);
         targetGoal.addScaledVector(up, dy * panSpeed);
       } else {
-        // Orbit around target
         sphericalGoal.theta -= dx * 0.008;
         sphericalGoal.phi -= dy * 0.008;
         sphericalGoal.phi = Math.max(0.02, Math.min(Math.PI - 0.02, sphericalGoal.phi));
@@ -262,6 +290,12 @@ export default function Canvas3D(): JSX.Element {
       dragging = false;
       if (renderer.domElement.hasPointerCapture(e.pointerId)) {
         renderer.domElement.releasePointerCapture(e.pointerId);
+      }
+
+      // Check if it was a quick click rather than a drag
+      const moveDist = Math.hypot(e.clientX - downX, e.clientY - downY);
+      if (moveDist < 5) {
+        handleCanvasClick(e.clientX, e.clientY);
       }
     };
 
@@ -282,7 +316,6 @@ export default function Canvas3D(): JSX.Element {
     /* ---- Main Animation / Render Loop with Damping ---- */
     let raf = 0;
     const loop = () => {
-      // Smooth camera interpolation (damping)
       const damp = 0.15;
       spherical.radius += (sphericalGoal.radius - spherical.radius) * damp;
       spherical.phi += (sphericalGoal.phi - spherical.phi) * damp;
@@ -296,7 +329,6 @@ export default function Canvas3D(): JSX.Element {
     };
     loop();
 
-    // Resize observer
     const ro = new ResizeObserver(() => {
       const nw = mount.clientWidth || 1;
       const nh = mount.clientHeight || 1;
@@ -327,9 +359,7 @@ export default function Canvas3D(): JSX.Element {
     if (!autoRotate) return;
     const interval = setInterval(() => {
       const v = viewerRef.current;
-      if (v) {
-        v.sphericalGoal.theta += 0.008;
-      }
+      if (v) v.sphericalGoal.theta += 0.008;
     }, 16);
     return () => clearInterval(interval);
   }, [autoRotate]);
@@ -355,7 +385,7 @@ export default function Canvas3D(): JSX.Element {
     }
   }, [envTheme, showGrid]);
 
-  /* ---- (Re)build meshes when design or renderMode changes ---- */
+  /* ---- (Re)build meshes when project, renderMode, or placements change ---- */
   useEffect(() => {
     const v = viewerRef.current;
     if (!v) return;
@@ -368,12 +398,9 @@ export default function Canvas3D(): JSX.Element {
     const g = buildProjectObject(project, renderMode);
     const box = new THREE.Box3().setFromObject(g);
     if (!box.isEmpty()) {
-      const center = box.getCenter(new THREE.Vector3());
-      g.position.sub(center); // Recentralise whole project at origin
       v.scene.add(g);
       v.group = g;
 
-      // Re-apply exploded factor if non-zero
       if (explodeFactor > 0) {
         applyExplodeFactor(g, explodeFactor);
       }
@@ -395,11 +422,77 @@ export default function Canvas3D(): JSX.Element {
     }
   };
 
-  /* ---- Interactive Raycasting for Hover Tooltip ---- */
+  /* ---- Interactive Canvas Click for Connector Mating ---- */
+  const handleCanvasClick = (clientX: number, clientY: number) => {
+    const v = viewerRef.current;
+    if (!v || !v.group || !mountRef.current) return;
+
+    const rect = mountRef.current.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(x, y), v.camera);
+
+    const intersects = raycaster.intersectObjects(v.group.children, true);
+    for (const hit of intersects) {
+      const data = hit.object.userData;
+      if (data && data.isConnector) {
+        const clickedConn: SelectedConnector = {
+          connectorId: data.connectorId,
+          partId: data.partId,
+          partName: data.partName,
+          connectorName: data.connectorName,
+          type: data.connectorType,
+          role: data.connectorRole,
+        };
+
+        if (!selectedSourceConn) {
+          // Select as source
+          setSelectedSourceConn(clickedConn);
+          showToast(`Selected source connector: ${clickedConn.partName} [${clickedConn.connectorName}]`);
+        } else if (selectedSourceConn.connectorId === clickedConn.connectorId) {
+          // Deselect
+          setSelectedSourceConn(null);
+        } else if (selectedSourceConn.partId === clickedConn.partId) {
+          // Same part -> switch source selection
+          setSelectedSourceConn(clickedConn);
+        } else {
+          // MATE TWO CONNECTORS ACROSS PARTS!
+          const p1 = project.parts.find((p) => p.id === selectedSourceConn.partId);
+          const c1 = p1?.connectors.find((c) => c.id === selectedSourceConn.connectorId);
+          const p2 = project.parts.find((p) => p.id === clickedConn.partId);
+          const c2 = p2?.connectors.find((c) => c.id === clickedConn.connectorId);
+
+          if (p1 && c1 && p2 && c2) {
+            const compat = checkCompatibility({ part: p1, connector: c1 }, { part: p2, connector: c2 });
+            addConnection({
+              sourcePart: p1.id,
+              sourceConnector: c1.id,
+              targetPart: p2.id,
+              targetConnector: c2.id,
+              status: compat.status,
+              reason: compat.reason,
+            });
+
+            // Calculate 3D mating transform & place target part
+            const mating = calculateMatingTransform(p1, c1, p2, c2);
+            placePart(p2.id, mating.position, mating.rotation);
+
+            showToast(`Connected ${p1.name} to ${p2.name}!`);
+            setSelectedSourceConn(null);
+          }
+        }
+        return;
+      }
+    }
+  };
+
+  /* ---- Interactive Pointer Move for Tooltip ---- */
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const v = viewerRef.current;
     if (!v || !v.group || !mountRef.current) {
-      setHoveredPart(null);
+      setHoveredInfo(null);
       return;
     }
 
@@ -414,8 +507,20 @@ export default function Canvas3D(): JSX.Element {
     if (intersects.length > 0) {
       const hit = intersects[0].object;
       const data = hit.userData;
-      if (data && data.partName) {
-        setHoveredPart({
+      if (data && data.isConnector) {
+        setHoveredInfo({
+          isConnector: true,
+          name: data.connectorName,
+          type: data.connectorType,
+          role: data.connectorRole,
+          partName: data.partName,
+          screenX: e.clientX,
+          screenY: e.clientY,
+        });
+        return;
+      } else if (data && data.partName) {
+        setHoveredInfo({
+          isConnector: false,
           name: data.partName,
           thickness: data.thickness,
           material: data.materialName,
@@ -426,7 +531,19 @@ export default function Canvas3D(): JSX.Element {
         return;
       }
     }
-    setHoveredPart(null);
+    setHoveredInfo(null);
+  };
+
+  /* ---- Toast Trigger Helper ---- */
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  /* ---- Run Auto-Connect All ---- */
+  const handleAutoConnect = () => {
+    autoConnectProject(project);
+    showToast("Auto-connected all compatible joints in 3D!");
   };
 
   /* ---- Preset Camera Angles ---- */
@@ -469,7 +586,7 @@ export default function Canvas3D(): JSX.Element {
       className="wk-canvas3d"
       style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}
       onPointerMove={handlePointerMove}
-      onPointerLeave={() => setHoveredPart(null)}
+      onPointerLeave={() => setHoveredInfo(null)}
     >
       <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
 
@@ -571,46 +688,191 @@ export default function Canvas3D(): JSX.Element {
 
           <div style={{ width: 1, height: 20, background: "var(--wk-border)" }} />
 
-          {/* Grid Toggle */}
+          {/* Connections Drawer Toggle & Auto-Connect Button */}
           <button
             type="button"
-            className={`wk-3d-btn ${showGrid ? "wk-3d-btn--active" : ""}`}
-            onClick={() => setShowGrid(!showGrid)}
+            className={`wk-3d-btn ${showConnectionsPanel ? "wk-3d-btn--active" : ""}`}
+            onClick={() => setShowConnectionsPanel(!showConnectionsPanel)}
           >
-            # Grid
+            ⚡ Connections ({project.assembly.connections.length})
+          </button>
+
+          <button
+            type="button"
+            className="wk-3d-btn"
+            onClick={handleAutoConnect}
+            title="Auto-connect all matching tab-slots and peg-holes in 3D"
+            style={{ color: "var(--wk-accent-ink)", fontWeight: 700 }}
+          >
+            ✦ Auto-Connect All
           </button>
         </div>
       </div>
 
-      {/* ---- Dynamic Hover Part Inspection Tooltip ---- */}
-      {hoveredPart && (
+      {/* ---- Selected Source Connector Banner ---- */}
+      {selectedSourceConn && (
+        <div
+          className="wk-toast"
+          style={{
+            top: 60,
+            bottom: "auto",
+            background: "var(--wk-surface)",
+            color: "var(--wk-ink)",
+            border: "1px solid var(--wk-accent)",
+          }}
+        >
+          <span>
+            Connecting <strong>{selectedSourceConn.partName}</strong> [{selectedSourceConn.connectorName}] → Click target connector to mate!
+          </span>
+          <button
+            type="button"
+            className="wk-btn wk-btn--ghost"
+            style={{ padding: "2px 8px", fontSize: 11 }}
+            onClick={() => setSelectedSourceConn(null)}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* ---- Toast Notification ---- */}
+      {toastMessage && <div className="wk-toast wk-toast--ok">{toastMessage}</div>}
+
+      {/* ---- Connections Manager Overlay Drawer ---- */}
+      {showConnectionsPanel && (
+        <div
+          className="wk-hud-glass"
+          style={{
+            position: "absolute",
+            bottom: 72,
+            right: "var(--wk-s3)",
+            width: 320,
+            maxHeight: 360,
+            flexDirection: "column",
+            alignItems: "stretch",
+            zIndex: 40,
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>3D Saved Connections</span>
+            <button
+              type="button"
+              className="wk-icon-btn"
+              style={{ width: 22, height: 22, fontSize: 13 }}
+              onClick={() => setShowConnectionsPanel(false)}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+            {project.assembly.connections.length === 0 ? (
+              <div style={{ color: "var(--wk-ink-faint)", fontSize: 12, textAlign: "center", padding: 12 }}>
+                No 3D connections saved yet. Click connectors on 3D parts to link them, or hit <strong>Auto-Connect All</strong>!
+              </div>
+            ) : (
+              project.assembly.connections.map((cnx) => {
+                const sp = project.parts.find((p) => p.id === cnx.sourcePart);
+                const tp = project.parts.find((p) => p.id === cnx.targetPart);
+                const sc = sp?.connectors.find((c) => c.id === cnx.sourceConnector);
+                const tc = tp?.connectors.find((c) => c.id === cnx.targetConnector);
+
+                return (
+                  <div
+                    key={cnx.id}
+                    style={{
+                      background: "var(--wk-surface)",
+                      border: "1px solid var(--wk-border)",
+                      borderRadius: "var(--wk-r1)",
+                      padding: "6px 10px",
+                      fontSize: 12,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600 }}>
+                        {sp?.name ?? "Part"} ➔ {tp?.name ?? "Part"}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--wk-ink-faint)" }}>
+                        {sc?.name ?? "Conn"} ({sc?.type}) ⇄ {tc?.name ?? "Conn"} ({tc?.type})
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="wk-btn wk-btn--ghost"
+                      style={{ padding: "2px 6px", color: "var(--wk-red)", fontSize: 11 }}
+                      onClick={() => removeConnection(cnx.id)}
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ---- Dynamic Hover Inspection Tooltip ---- */}
+      {hoveredInfo && (
         <div
           className="wk-3d-inspect-tooltip"
           style={{
-            left: hoveredPart.screenX,
-            top: hoveredPart.screenY,
+            left: hoveredInfo.screenX,
+            top: hoveredInfo.screenY,
           }}
         >
-          <div className="wk-3d-inspect-title">
-            <span
-              style={{
-                display: "inline-block",
-                width: 10,
-                height: 10,
-                borderRadius: "50%",
-                background: hoveredPart.colorHex,
-              }}
-            />
-            {hoveredPart.name}
-          </div>
-          <div className="wk-3d-inspect-row">
-            <span>Material:</span>
-            <span className="wk-3d-inspect-val">{hoveredPart.material}</span>
-          </div>
-          <div className="wk-3d-inspect-row">
-            <span>Thickness:</span>
-            <span className="wk-3d-inspect-val">{hoveredPart.thickness} mm</span>
-          </div>
+          {hoveredInfo.isConnector ? (
+            <>
+              <div className="wk-3d-inspect-title">
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: 10,
+                    height: 10,
+                    borderRadius: "50%",
+                    background: hoveredInfo.role === "insert" ? "#22c55e" : hoveredInfo.role === "receiver" ? "#3b82f6" : "#f59e0b",
+                  }}
+                />
+                Connector: {hoveredInfo.name}
+              </div>
+              <div className="wk-3d-inspect-row">
+                <span>Part:</span>
+                <span className="wk-3d-inspect-val">{hoveredInfo.partName}</span>
+              </div>
+              <div className="wk-3d-inspect-row">
+                <span>Type:</span>
+                <span className="wk-3d-inspect-val" style={{ textTransform: "capitalize" }}>
+                  {hoveredInfo.type} ({hoveredInfo.role})
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="wk-3d-inspect-title">
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: 10,
+                    height: 10,
+                    borderRadius: "50%",
+                    background: hoveredInfo.colorHex,
+                  }}
+                />
+                {hoveredInfo.name}
+              </div>
+              <div className="wk-3d-inspect-row">
+                <span>Material:</span>
+                <span className="wk-3d-inspect-val">{hoveredInfo.material}</span>
+              </div>
+              <div className="wk-3d-inspect-row">
+                <span>Thickness:</span>
+                <span className="wk-3d-inspect-val">{hoveredInfo.thickness} mm</span>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
