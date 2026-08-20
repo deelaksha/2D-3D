@@ -557,6 +557,40 @@ export default function Canvas3D(): JSX.Element {
     showToast(`Added ${p.name} to 3D scene`);
   };
 
+  const handleDropPartOnCanvas = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const partId = e.dataTransfer.getData("text/plain");
+    if (!partId) return;
+
+    const p = project.parts.find((x) => x.id === partId);
+    if (!p) return;
+
+    const v = viewerRef.current;
+    if (!v || !mountRef.current) {
+      handleAddPartToScene(partId);
+      return;
+    }
+
+    const rect = mountRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(x, y), v.camera);
+
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    const targetPt = new THREE.Vector3();
+    raycaster.ray.intersectPlane(plane, targetPt);
+
+    const dropPos = targetPt
+      ? { x: Math.round(targetPt.x), y: Math.round(targetPt.y), z: 0 }
+      : { x: p.transform.x, y: -p.transform.y, z: 0 };
+
+    placePart(partId, dropPos, { x: 0, y: 0, z: p.transform.rotation });
+    showToast(`Dragged & placed ${p.name} in 3D scene!`);
+  };
+
+
   const setCameraPreset = (preset: "iso" | "top" | "front" | "side" | "fit") => {
     const v = viewerRef.current;
     if (!v) return;
@@ -597,7 +631,10 @@ export default function Canvas3D(): JSX.Element {
       style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}
       onPointerMove={handlePointerMove}
       onPointerLeave={() => setHoveredInfo(null)}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={handleDropPartOnCanvas}
     >
+
       <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
 
       {/* ---- Empty 3D Scene Staging Prompt ---- */}
@@ -741,7 +778,15 @@ export default function Canvas3D(): JSX.Element {
                 unplacedParts.map((p) => {
                   const mat = materialOf(project, p.materialId);
                   return (
-                    <div key={p.id} className="wk-3d-library-card">
+                    <div
+                      key={p.id}
+                      className="wk-3d-library-card"
+                      draggable={true}
+                      onDragStart={(e) => e.dataTransfer.setData("text/plain", p.id)}
+                      style={{ cursor: "grab" }}
+                      title="Drag and drop onto 3D viewport to place"
+                    >
+
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <span style={{ fontWeight: 700, fontSize: 13, color: "var(--wk-ink)" }}>{p.name}</span>
                         <span
