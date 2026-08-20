@@ -497,10 +497,16 @@ button { font-family: inherit; }
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--wk-surface);
+  color: var(--wk-ink);
+  border: 1px solid var(--wk-border-strong);
+  box-shadow: var(--wk-shadow-3);
+  border-radius: var(--wk-r3);
+  padding: 12px;
 }
 
 .wk-3d-library-card {
-  background: var(--wk-surface);
+  background: var(--wk-surface-2);
   border: 1px solid var(--wk-border);
   border-radius: var(--wk-r2);
   padding: 10px 12px;
@@ -513,6 +519,7 @@ button { font-family: inherit; }
   border-color: var(--wk-accent);
   box-shadow: var(--wk-shadow-1);
 }
+
 
 .wk-3d-empty-prompt {
   position: absolute;
