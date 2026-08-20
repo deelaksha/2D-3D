@@ -268,22 +268,28 @@ export function buildProjectObject(
 
   for (const part of project.parts) {
     if (!part.visible) continue;
-    const o = buildPartObject(project, part, renderMode);
-    if (o) {
-      // Check saved 3D placements
-      const placement = project.assembly.placements.find((pl) => pl.partId === part.id);
-      if (placement && placement.placed) {
-        o.position.set(placement.position.x, placement.position.y, placement.position.z);
-        o.rotation.set(
-          THREE.MathUtils.degToRad(placement.rotation.x),
-          THREE.MathUtils.degToRad(placement.rotation.y),
-          THREE.MathUtils.degToRad(placement.rotation.z)
-        );
+
+    // Only render parts that have been added to the 3D scene (placed === true)
+    const placement = project.assembly.placements.find((pl) => pl.partId === part.id);
+    const isPlaced = placement ? placement.placed : false;
+
+    if (isPlaced) {
+      const o = buildPartObject(project, part, renderMode);
+      if (o) {
+        if (placement) {
+          o.position.set(placement.position.x, placement.position.y, placement.position.z);
+          o.rotation.set(
+            THREE.MathUtils.degToRad(placement.rotation.x),
+            THREE.MathUtils.degToRad(placement.rotation.y),
+            THREE.MathUtils.degToRad(placement.rotation.z)
+          );
+        }
+        root.add(o);
+        partGroupMap.set(part.id, o);
       }
-      root.add(o);
-      partGroupMap.set(part.id, o);
     }
   }
+
 
   // Calculate explode vectors from collective center of mass
   const box = new THREE.Box3().setFromObject(root);

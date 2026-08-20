@@ -562,6 +562,38 @@ export function placePart(partId: string, position: Vec3, rotation?: Vec3): void
   updatePlacement(partId, { position, rotation: rotation ?? { x: 0, y: 0, z: 0 }, placed: true }, "Place part in 3D");
 }
 
+export function unplacePart(partId: string): void {
+  store.commit("Remove from 3D", (d) => {
+    const pl = d.assembly.placements.find((p) => p.partId === partId);
+    if (pl) pl.placed = false;
+    d.assembly.connections = d.assembly.connections.filter(
+      (c) => c.sourcePart !== partId && c.targetPart !== partId
+    );
+  });
+}
+
+export function clear3DScene(): void {
+  store.commit("Clear 3D Scene", (d) => {
+    d.assembly.placements.forEach((pl) => (pl.placed = false));
+    d.assembly.connections = [];
+  });
+}
+
+export function placeAllParts(): void {
+  store.commit("Place all parts in 3D", (d) => {
+    d.parts.forEach((p) => {
+      let pl = d.assembly.placements.find((x) => x.partId === p.id);
+      if (!pl) {
+        pl = { partId: p.id, position: { x: p.transform.x, y: -p.transform.y, z: 0 }, rotation: { x: 0, y: 0, z: p.transform.rotation }, placed: true };
+        d.assembly.placements.push(pl);
+      } else {
+        pl.placed = true;
+      }
+    });
+  });
+}
+
+
 export function addConnection(
   conn: Omit<Connection, "id"> & { id?: string },
 ): string {

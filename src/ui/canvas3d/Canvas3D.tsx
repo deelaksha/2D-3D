@@ -1,9 +1,11 @@
 /**
- * Canvas3D — High-fidelity interactive 3D Studio viewport & 3D Mating Engine.
+ * Canvas3D — High-fidelity interactive 3D Studio viewport, 3D Mating Engine,
+ * and 3D Parts & Materials Library Sidebar.
  * Features:
  * - Studio lighting & soft contact shadow ground.
  * - Multi-theme environment backgrounds (Dark Studio, Warm Workshop, Clean Light, Cyber).
  * - Render modes (Textured wood grain, Solid color, Wireframe, X-Ray transparent).
+ * - 3D Parts & Materials Library Sidebar for staging assembly one-by-one cleanly.
  * - Interactive 3D Connector Snapping & Click-to-Connect mating workflow.
  * - Auto-Connect All matching joints engine.
  * - Connections Management HUD Drawer.
@@ -16,12 +18,15 @@ import * as THREE from "three";
 import { useProject } from "@/core/store/store";
 import {
   addConnection,
+  clear3DScene,
+  placeAllParts,
   placePart,
   removeConnection,
   rotateConnector,
+  unplacePart,
 } from "@/core/store/actions";
-
 import { checkCompatibility } from "@/core/connectors/compat";
+import { materialOf } from "@/core/model/defaults";
 import {
   autoConnectProject,
   applyExplodeFactor,
@@ -32,6 +37,7 @@ import {
 } from "./build3d";
 
 export type EnvTheme = "dark" | "workshop" | "light" | "cyber";
+export type LibraryTab = "library" | "scene" | "materials";
 
 interface HoveredInfo {
   isConnector?: boolean;
@@ -130,6 +136,17 @@ export default function Canvas3D(): JSX.Element {
   const [showConnectionsPanel, setShowConnectionsPanel] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // 3D Library Sidebar Controls
+  const [showLibrarySidebar, setShowLibrarySidebar] = useState<boolean>(true);
+  const [libraryTab, setLibraryTab] = useState<LibraryTab>("library");
+
+  /* ---- Placed vs Unplaced Parts Calculations ---- */
+  const placedPartIds = new Set(
+    project.assembly.placements.filter((pl) => pl.placed).map((pl) => pl.partId)
+  );
+  const placedParts = project.parts.filter((p) => placedPartIds.has(p.id));
+  const unplacedParts = project.parts.filter((p) => !placedPartIds.has(p.id));
+
   /* ---- One-time scene & engine setup ---- */
   useEffect(() => {
     const mount = mountRef.current;
@@ -137,7 +154,6 @@ export default function Canvas3D(): JSX.Element {
     const w = mount.clientWidth || 800;
     const h = mount.clientHeight || 600;
 
-    // Renderer setup with shadow maps & ACES tone mapping
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(w, h);
@@ -155,7 +171,6 @@ export default function Canvas3D(): JSX.Element {
 
     const camera = new THREE.PerspectiveCamera(42, w / h, 1, 500000);
 
-    // Studio Lighting setup
     const ambientLight = new THREE.AmbientLight(ENV_CONFIGS.dark.ambient, 1.1);
     scene.add(ambientLight);
 
@@ -177,7 +192,6 @@ export default function Canvas3D(): JSX.Element {
     rimLight.position.set(0, -600, 400);
     scene.add(rimLight);
 
-    // Dynamic Grid Floor
     const gridHelper = new THREE.GridHelper(
       1400,
       44,
@@ -188,7 +202,6 @@ export default function Canvas3D(): JSX.Element {
     gridHelper.position.z = -0.5;
     scene.add(gridHelper);
 
-    // Contact Shadow Receiver Plane
     const shadowGeo = new THREE.PlaneGeometry(2000, 2000);
     const shadowMat = new THREE.ShadowMaterial({ opacity: 0.28 });
     const shadowPlane = new THREE.Mesh(shadowGeo, shadowMat);
@@ -196,7 +209,6 @@ export default function Canvas3D(): JSX.Element {
     shadowPlane.receiveShadow = true;
     scene.add(shadowPlane);
 
-    // Camera spherical orbit targets & inertia goals
     const target = new THREE.Vector3(0, 0, 0);
     const targetGoal = new THREE.Vector3(0, 0, 0);
     const spherical = new THREE.Spherical(600, Math.PI / 3, Math.PI / 4);
@@ -249,7 +261,6 @@ export default function Canvas3D(): JSX.Element {
     };
     viewerRef.current = viewer;
 
-    /* ---- Pointer Controls (Orbit, Pan, Zoom) ---- */
     let dragging = false;
     let isPan = false;
     let px = 0;
@@ -294,7 +305,6 @@ export default function Canvas3D(): JSX.Element {
         renderer.domElement.releasePointerCapture(e.pointerId);
       }
 
-      // Check if it was a quick click rather than a drag
       const moveDist = Math.hypot(e.clientX - downX, e.clientY - downY);
       if (moveDist < 5) {
         handleCanvasClick(e.clientX, e.clientY);
@@ -315,7 +325,6 @@ export default function Canvas3D(): JSX.Element {
     renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
     renderer.domElement.addEventListener("contextmenu", onContextMenu);
 
-    /* ---- Main Animation / Render Loop with Damping ---- */
     let raf = 0;
     const loop = () => {
       const damp = 0.15;
@@ -450,17 +459,13 @@ export default function Canvas3D(): JSX.Element {
         };
 
         if (!selectedSourceConn) {
-          // Select as source
           setSelectedSourceConn(clickedConn);
           showToast(`Selected source connector: ${clickedConn.partName} [${clickedConn.connectorName}]`);
         } else if (selectedSourceConn.connectorId === clickedConn.connectorId) {
-          // Deselect
           setSelectedSourceConn(null);
         } else if (selectedSourceConn.partId === clickedConn.partId) {
-          // Same part -> switch source selection
           setSelectedSourceConn(clickedConn);
         } else {
-          // MATE TWO CONNECTORS ACROSS PARTS!
           const p1 = project.parts.find((p) => p.id === selectedSourceConn.partId);
           const c1 = p1?.connectors.find((c) => c.id === selectedSourceConn.connectorId);
           const p2 = project.parts.find((p) => p.id === clickedConn.partId);
@@ -477,7 +482,6 @@ export default function Canvas3D(): JSX.Element {
               reason: compat.reason,
             });
 
-            // Calculate 3D mating transform & place target part
             const mating = calculateMatingTransform(p1, c1, p2, c2);
             placePart(p2.id, mating.position, mating.rotation);
 
@@ -536,19 +540,23 @@ export default function Canvas3D(): JSX.Element {
     setHoveredInfo(null);
   };
 
-  /* ---- Toast Trigger Helper ---- */
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  /* ---- Run Auto-Connect All ---- */
   const handleAutoConnect = () => {
     autoConnectProject(project);
     showToast("Auto-connected all compatible joints in 3D!");
   };
 
-  /* ---- Preset Camera Angles ---- */
+  const handleAddPartToScene = (partId: string) => {
+    const p = project.parts.find((x) => x.id === partId);
+    if (!p) return;
+    placePart(partId, { x: p.transform.x, y: -p.transform.y, z: 0 }, { x: 0, y: 0, z: p.transform.rotation });
+    showToast(`Added ${p.name} to 3D scene`);
+  };
+
   const setCameraPreset = (preset: "iso" | "top" | "front" | "side" | "fit") => {
     const v = viewerRef.current;
     if (!v) return;
@@ -592,6 +600,27 @@ export default function Canvas3D(): JSX.Element {
     >
       <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
 
+      {/* ---- Empty 3D Scene Staging Prompt ---- */}
+      {placedParts.length === 0 && (
+        <div className="wk-hud-glass wk-3d-empty-prompt" style={{ padding: 20, flexDirection: "column", gap: 12 }}>
+          <div style={{ fontSize: 24 }}>📦</div>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Your 3D Scene is Clean</div>
+          <div style={{ fontSize: 12, color: "var(--wk-ink-soft)", lineHeight: 1.4 }}>
+            Click <strong>Add to 3D Scene</strong> on any part in the Library sidebar on the right to start staging and joining your parts cleanly!
+          </div>
+          <div style={{ display: "flex", gap: 8, justifyContent: "center", width: "100%", marginTop: 4 }}>
+            <button
+              type="button"
+              className="wk-btn wk-btn--primary"
+              onClick={() => placeAllParts()}
+              style={{ width: "100%", justifyContent: "center" }}
+            >
+              Place All Parts in 3D
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ---- Top-Left Studio Environment Selector ---- */}
       <div className="wk-3d-toolbar-top">
         <div className="wk-hud-glass">
@@ -614,8 +643,8 @@ export default function Canvas3D(): JSX.Element {
         </div>
       </div>
 
-      {/* ---- Top-Right Render Modes & Presentation ---- */}
-      <div className="wk-3d-toolbar-right">
+      {/* ---- Top-Right Render Modes, Presentation & Library Toggle ---- */}
+      <div className="wk-3d-toolbar-right" style={{ right: showLibrarySidebar ? 344 : "var(--wk-s3)" }}>
         <div className="wk-hud-glass">
           <div className="wk-3d-btn-group">
             {(
@@ -644,8 +673,190 @@ export default function Canvas3D(): JSX.Element {
           >
             ↻ Spin
           </button>
+          <button
+            type="button"
+            className={`wk-3d-btn ${showLibrarySidebar ? "wk-3d-btn--active" : ""}`}
+            onClick={() => setShowLibrarySidebar(!showLibrarySidebar)}
+            title="Toggle 3D Parts & Materials Library Sidebar"
+            style={{ fontWeight: 700 }}
+          >
+            📦 Library ({placedParts.length}/{project.parts.length})
+          </button>
         </div>
       </div>
+
+      {/* ---- Right-Side 3D Parts & Materials Library Sidebar ---- */}
+      {showLibrarySidebar && (
+        <div className="wk-hud-glass wk-3d-sidebar">
+          {/* Header & Tabs */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontWeight: 700, fontSize: 13, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--wk-ink-faint)" }}>
+              Parts & Materials Library
+            </span>
+            <button
+              type="button"
+              className="wk-icon-btn"
+              style={{ width: 22, height: 22, fontSize: 13 }}
+              onClick={() => setShowLibrarySidebar(false)}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="wk-3d-btn-group" style={{ marginBottom: 10 }}>
+            <button
+              type="button"
+              className={`wk-3d-btn ${libraryTab === "library" ? "wk-3d-btn--active" : ""}`}
+              onClick={() => setLibraryTab("library")}
+              style={{ flex: 1, justifyContent: "center" }}
+            >
+              Library ({unplacedParts.length})
+            </button>
+            <button
+              type="button"
+              className={`wk-3d-btn ${libraryTab === "scene" ? "wk-3d-btn--active" : ""}`}
+              onClick={() => setLibraryTab("scene")}
+              style={{ flex: 1, justifyContent: "center" }}
+            >
+              In 3D ({placedParts.length})
+            </button>
+            <button
+              type="button"
+              className={`wk-3d-btn ${libraryTab === "materials" ? "wk-3d-btn--active" : ""}`}
+              onClick={() => setLibraryTab("materials")}
+              style={{ flex: 1, justifyContent: "center" }}
+            >
+              Materials ({project.materials.length})
+            </button>
+          </div>
+
+          {/* Tab 1: Unplaced Library Parts */}
+          {libraryTab === "library" && (
+            <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+              {unplacedParts.length === 0 ? (
+                <div style={{ color: "var(--wk-ink-faint)", fontSize: 12, textAlign: "center", padding: 16 }}>
+                  All designed parts are currently staged in your 3D scene!
+                </div>
+              ) : (
+                unplacedParts.map((p) => {
+                  const mat = materialOf(project, p.materialId);
+                  return (
+                    <div key={p.id} className="wk-3d-library-card">
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: "var(--wk-ink)" }}>{p.name}</span>
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            fontSize: 11,
+                            padding: "2px 6px",
+                            borderRadius: "var(--wk-r-pill)",
+                            background: "var(--wk-surface-3)",
+                          }}
+                        >
+                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: mat?.color ?? "#c8a25a" }} />
+                          {mat?.name ?? "Wood"}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--wk-ink-soft)", display: "flex", gap: 12 }}>
+                        <span>Size: {Math.round(p.width)} × {Math.round(p.height)} mm</span>
+                        <span>Thickness: {p.thickness} mm</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--wk-ink-faint)" }}>
+                        Connectors: {p.connectors.length} ({p.connectors.map((c) => c.type).join(", ") || "none"})
+                      </div>
+                      <button
+                        type="button"
+                        className="wk-btn wk-btn--primary"
+                        style={{ marginTop: 4, padding: "5px 10px", fontSize: 12, justifyContent: "center" }}
+                        onClick={() => handleAddPartToScene(p.id)}
+                      >
+                        + Add to 3D Scene
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+
+          {/* Tab 2: Placed Parts in Scene */}
+          {libraryTab === "scene" && (
+            <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+              {placedParts.length === 0 ? (
+                <div style={{ color: "var(--wk-ink-faint)", fontSize: 12, textAlign: "center", padding: 16 }}>
+                  No parts placed in 3D yet. Add parts from the Library tab!
+                </div>
+              ) : (
+                placedParts.map((p) => {
+                  const mat = materialOf(project, p.materialId);
+                  return (
+                    <div key={p.id} className="wk-3d-library-card">
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: "var(--wk-ink)" }}>{p.name}</span>
+                        <span style={{ fontSize: 11, color: "var(--wk-green)", fontWeight: 600 }}>✓ In Scene</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--wk-ink-soft)" }}>
+                        Material: {mat?.name ?? "Wood"} ({p.thickness} mm)
+                      </div>
+                      <button
+                        type="button"
+                        className="wk-btn wk-btn--ghost"
+                        style={{ marginTop: 2, padding: "3px 8px", fontSize: 11, color: "var(--wk-red)", justifyContent: "center" }}
+                        onClick={() => unplacePart(p.id)}
+                      >
+                        Remove from 3D
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+
+          {/* Tab 3: Materials Properties */}
+          {libraryTab === "materials" && (
+            <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+              {project.materials.map((m) => (
+                <div key={m.id} className="wk-3d-library-card">
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ width: 14, height: 14, borderRadius: "50%", background: m.color, border: "1px solid var(--wk-border)" }} />
+                    <span style={{ fontWeight: 700, fontSize: 13 }}>{m.name}</span>
+                    <span style={{ fontSize: 10, textTransform: "uppercase", color: "var(--wk-ink-faint)", marginLeft: "auto" }}>
+                      {m.kind}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--wk-ink-soft)", display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+                    <span>Default Thickness: <strong>{m.thickness} mm</strong></span>
+                    {m.density && <span>Density: {m.density} g/cm³</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Batch Staging Controls Footer */}
+          <div style={{ borderTop: "1px solid var(--wk-border)", paddingTop: 8, marginTop: 6, display: "flex", gap: 6 }}>
+            <button
+              type="button"
+              className="wk-btn wk-btn--ghost"
+              style={{ flex: 1, fontSize: 11, justifyContent: "center" }}
+              onClick={() => placeAllParts()}
+            >
+              Place All
+            </button>
+            <button
+              type="button"
+              className="wk-btn wk-btn--ghost"
+              style={{ flex: 1, fontSize: 11, color: "var(--wk-red)", justifyContent: "center" }}
+              onClick={() => clear3DScene()}
+            >
+              Clear 3D Scene
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ---- Bottom-Center Floating Viewport Toolbar ---- */}
       <div className="wk-3d-toolbar">
@@ -747,7 +958,6 @@ export default function Canvas3D(): JSX.Element {
         </div>
       )}
 
-
       {/* ---- Toast Notification ---- */}
       {toastMessage && <div className="wk-toast wk-toast--ok">{toastMessage}</div>}
 
@@ -758,7 +968,7 @@ export default function Canvas3D(): JSX.Element {
           style={{
             position: "absolute",
             bottom: 72,
-            right: "var(--wk-s3)",
+            right: showLibrarySidebar ? 344 : "var(--wk-s3)",
             width: 320,
             maxHeight: 360,
             flexDirection: "column",
