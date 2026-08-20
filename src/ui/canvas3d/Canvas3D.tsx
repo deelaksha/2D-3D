@@ -773,6 +773,14 @@ export default function Canvas3D(): JSX.Element {
               {unplacedParts.length === 0 ? (
                 <div style={{ color: "var(--wk-ink-faint)", fontSize: 12, textAlign: "center", padding: 16 }}>
                   All designed parts are currently staged in your 3D scene!
+                  <button
+                    type="button"
+                    className="wk-btn wk-btn--ghost"
+                    style={{ marginTop: 8, fontSize: 11, color: "var(--wk-accent-ink)", width: "100%", justifyContent: "center" }}
+                    onClick={() => clear3DScene()}
+                  >
+                    ↺ Reset & Stage One-by-One
+                  </button>
                 </div>
               ) : (
                 unplacedParts.map((p) => {
@@ -786,7 +794,6 @@ export default function Canvas3D(): JSX.Element {
                       style={{ cursor: "grab" }}
                       title="Drag and drop onto 3D viewport to place"
                     >
-
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <span style={{ fontWeight: 700, fontSize: 13, color: "var(--wk-ink)" }}>{p.name}</span>
                         <span
@@ -813,9 +820,26 @@ export default function Canvas3D(): JSX.Element {
                       </div>
                       <button
                         type="button"
-                        className="wk-btn wk-btn--primary"
-                        style={{ marginTop: 4, padding: "5px 10px", fontSize: 12, justifyContent: "center" }}
-                        onClick={() => handleAddPartToScene(p.id)}
+                        className="wk-btn wk-3d-add-btn"
+                        style={{
+                          marginTop: 4,
+                          padding: "6px 12px",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          justifyContent: "center",
+                          background: "#ef8c3b",
+                          color: "#ffffff",
+                          border: "none",
+                          borderRadius: "var(--wk-r1)",
+                          cursor: "pointer",
+                          boxShadow: "0 2px 6px rgba(239, 140, 59, 0.4)",
+                        }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAddPartToScene(p.id);
+                        }}
                       >
                         + Add to 3D Scene
                       </button>
@@ -825,6 +849,7 @@ export default function Canvas3D(): JSX.Element {
               )}
             </div>
           )}
+
 
           {/* Tab 2: Placed Parts in Scene */}
           {libraryTab === "scene" && (
