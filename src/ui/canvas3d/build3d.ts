@@ -161,7 +161,9 @@ export function buildConnectorNodes3D(part: Part, thickness: number, group: THRE
     });
 
     const marker = new THREE.Mesh(sphereGeo, sphereMat);
-    marker.position.set(c.position.x, -c.position.y, thickness / 2 + 3);
+    const posX = c.position.x + part.transform.x;
+    const posY = -(c.position.y + part.transform.y);
+    marker.position.set(posX, posY, thickness / 2 + 3);
     marker.name = `connector_${c.id}`;
 
     marker.userData = {
@@ -172,8 +174,9 @@ export function buildConnectorNodes3D(part: Part, thickness: number, group: THRE
       connectorRole: role,
       partId: part.id,
       partName: part.name,
-      localPos: new THREE.Vector3(c.position.x, -c.position.y, thickness / 2),
+      localPos: new THREE.Vector3(posX, posY, thickness / 2),
     };
+
 
     group.add(marker);
   }

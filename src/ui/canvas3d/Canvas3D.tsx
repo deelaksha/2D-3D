@@ -239,7 +239,9 @@ export default function Canvas3D(): JSX.Element {
   const [explodeFactor, setExplodeFactor] = useState<number>(0);
   const [autoRotate, setAutoRotate] = useState<boolean>(false);
   const [showGrid, setShowGrid] = useState<boolean>(true);
+  const [showConnectors, setShowConnectors] = useState<boolean>(true);
   const [hoveredInfo, setHoveredInfo] = useState<HoveredInfo | null>(null);
+
 
   // 3D Mating & Connection Controls
   const [selectedSourceConn, setSelectedSourceConn] = useState<SelectedConnector | null>(null);
@@ -533,6 +535,19 @@ export default function Canvas3D(): JSX.Element {
       v.group = g;
     }
   }, [project, renderMode]);
+
+
+  /* ---- Toggle 3D Connector Markers Visibility ---- */
+  useEffect(() => {
+    const v = viewerRef.current;
+    if (!v || !v.group) return;
+    v.group.traverse((obj) => {
+      if (obj.userData && obj.userData.isConnector) {
+        obj.visible = showConnectors;
+      }
+    });
+  }, [showConnectors, project, renderMode]);
+
 
   /* ---- Handle Exploded Slider Changes ---- */
   const handleExplodeChange = (val: number) => {
@@ -981,11 +996,21 @@ export default function Canvas3D(): JSX.Element {
           {/* Connections Drawer Toggle & Auto-Connect Button */}
           <button
             type="button"
+            className={`wk-3d-btn ${showConnectors ? "wk-3d-btn--active" : ""}`}
+            onClick={() => setShowConnectors(!showConnectors)}
+            title="Toggle 3D interactive connector dots visibility"
+          >
+            {showConnectors ? "👁 Dots On" : "🙈 Dots Off"}
+          </button>
+
+          <button
+            type="button"
             className={`wk-3d-btn ${showConnectionsPanel ? "wk-3d-btn--active" : ""}`}
             onClick={() => setShowConnectionsPanel(!showConnectionsPanel)}
           >
             ⚡ Connections ({project.assembly.connections.length})
           </button>
+
 
           <button
             type="button"
