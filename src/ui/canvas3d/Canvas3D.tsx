@@ -40,7 +40,7 @@ import {
 } from "./build3d";
 
 export type EnvTheme = "dark" | "workshop" | "light" | "cyber";
-export type LibraryTab = "library" | "scene" | "materials";
+export type LibraryTab = "library" | "scene";
 
 interface HoveredInfo {
   isConnector?: boolean;
@@ -738,7 +738,7 @@ export default function Canvas3D(): JSX.Element {
           {/* Header & Tabs */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <span style={{ fontWeight: 700, fontSize: 13, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--wk-ink-faint)" }}>
-              Parts & Materials Library
+              3D Parts Library
             </span>
             <button
               type="button"
@@ -767,15 +767,8 @@ export default function Canvas3D(): JSX.Element {
             >
               In 3D ({placedParts.length})
             </button>
-            <button
-              type="button"
-              className={`wk-3d-btn ${libraryTab === "materials" ? "wk-3d-btn--active" : ""}`}
-              onClick={() => setLibraryTab("materials")}
-              style={{ flex: 1, justifyContent: "center" }}
-            >
-              Materials ({project.materials.length})
-            </button>
           </div>
+
 
           {/* Tab 1: Unplaced Library Parts */}
           {libraryTab === "library" && (
@@ -860,7 +853,6 @@ export default function Canvas3D(): JSX.Element {
             </div>
           )}
 
-
           {/* Tab 2: Placed Parts in Scene */}
           {libraryTab === "scene" && (
             <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -895,64 +887,6 @@ export default function Canvas3D(): JSX.Element {
             </div>
           )}
 
-          {/* Tab 3: Materials Properties */}
-          {libraryTab === "materials" && (
-            <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
-              {project.materials.map((m) => (
-                <div
-                  key={m.id}
-                  className="wk-3d-library-card"
-                  draggable={true}
-                  onDragStart={(e) => e.dataTransfer.setData("materialId", m.id)}
-                  style={{ cursor: "grab" }}
-                  title="Drag onto a 3D part to change its material, or drag onto ground to create a new board"
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ width: 14, height: 14, borderRadius: "50%", background: m.color, border: "1px solid var(--wk-border)" }} />
-                    <span style={{ fontWeight: 700, fontSize: 13 }}>{m.name}</span>
-                    <span style={{ fontSize: 10, textTransform: "uppercase", color: "var(--wk-ink-faint)", marginLeft: "auto" }}>
-                      {m.kind}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 11.5, color: "var(--wk-ink-soft)", display: "flex", justifyContent: "space-between", marginTop: 2 }}>
-                    <span>Stock Thickness: <strong>{m.thickness} mm</strong></span>
-                    {m.density && <span>Density: {m.density} g/cm³</span>}
-                  </div>
-                  <button
-                    type="button"
-                    className="wk-btn"
-                    style={{
-                      marginTop: 4,
-                      padding: "5px 10px",
-                      fontSize: 11.5,
-                      fontWeight: 600,
-                      justifyContent: "center",
-                      background: "var(--wk-surface)",
-                      color: "var(--wk-ink)",
-                      border: "1px solid var(--wk-border-strong)",
-                      borderRadius: "var(--wk-r1)",
-                      cursor: "pointer",
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const newPartId = createPart(`${m.name} Board`, {
-                        materialId: m.id,
-                        width: 120,
-                        height: 80,
-                        thickness: m.thickness,
-                      });
-                      placePart(newPartId, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
-                      showToast(`Created & staged new ${m.name} board in 3D!`);
-                    }}
-                  >
-                    + Create & Stage {m.name} Board
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
 
 
           {/* Batch Staging Controls Footer */}
