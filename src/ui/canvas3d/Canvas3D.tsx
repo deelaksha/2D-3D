@@ -637,26 +637,7 @@ export default function Canvas3D(): JSX.Element {
 
       <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
 
-      {/* ---- Empty 3D Scene Staging Prompt ---- */}
-      {placedParts.length === 0 && (
-        <div className="wk-hud-glass wk-3d-empty-prompt" style={{ padding: 20, flexDirection: "column", gap: 12 }}>
-          <div style={{ fontSize: 24 }}>📦</div>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>Your 3D Scene is Clean</div>
-          <div style={{ fontSize: 12, color: "var(--wk-ink-soft)", lineHeight: 1.4 }}>
-            Click <strong>Add to 3D Scene</strong> on any part in the Library sidebar on the right to start staging and joining your parts cleanly!
-          </div>
-          <div style={{ display: "flex", gap: 8, justifyContent: "center", width: "100%", marginTop: 4 }}>
-            <button
-              type="button"
-              className="wk-btn wk-btn--primary"
-              onClick={() => placeAllParts()}
-              style={{ width: "100%", justifyContent: "center" }}
-            >
-              Place All Parts in 3D
-            </button>
-          </div>
-        </div>
-      )}
+
 
       {/* ---- Top-Left Studio Environment Selector ---- */}
       <div className="wk-3d-toolbar-top">
