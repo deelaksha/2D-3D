@@ -8,9 +8,9 @@
  */
 import { SCHEMA_VERSION, type Project } from "@/core/model/types";
 import { idOrdinal, seedIdCounter } from "@/core/model/ids";
+import { makeProject } from "@/core/model/defaults";
 import { store } from "@/core/store/store";
 import { normalizeConnectorFeatures } from "@/core/store/actions";
-import { houseDemo } from "@/data/houseDemo";
 
 const STORAGE_KEY = "woodkit.project";
 
@@ -188,16 +188,27 @@ function scheduleAutosave(): void {
  * House demo, then wire up throttled autosave on every future store change.
  */
 export function bootstrapProject(): void {
-  const restored = loadFromLocalStorage();
-  if (restored) {
-    store.loadProject(restored, "Restored project");
-    seedIdCounter(maxIdOrdinal(restored));
-  } else {
-    store.loadProject(houseDemo(), "House demo");
+  try {
+    const restored = loadFromLocalStorage();
+    if (restored) {
+      store.loadProject(restored, "Restored project");
+      seedIdCounter(maxIdOrdinal(restored));
+    } else {
+      store.loadProject(makeProject(), "New project");
+    }
+  } catch (err) {
+    console.warn("Could not restore project from localStorage, resetting to new project:", err);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {}
+    store.loadProject(makeProject(), "New project");
   }
-  // Materialize connector plug/socket geometry for projects authored before the
-  // role system (idempotent, no undo entry).
-  normalizeConnectorFeatures();
+
+  try {
+    normalizeConnectorFeatures();
+  } catch (err) {
+    console.warn("normalizeConnectorFeatures warning:", err);
+  }
 
   if (typeof window !== "undefined") {
     store.subscribe(scheduleAutosave);

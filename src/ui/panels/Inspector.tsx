@@ -35,6 +35,11 @@ import {
   selectConnector,
   setConnectorPattern,
   setConnectorRole,
+  setConnectorInverted,
+  setConnectorCustomType,
+  createPortPair,
+  connectPortPair,
+  rotatePart,
   setPartMaterial,
   setPartShape,
   updateConnector,
@@ -62,6 +67,7 @@ const CONNECTOR_TYPES: ConnectorType[] = [
   "edge",
   "corner",
   "surface",
+  "custom",
 ];
 
 /* ------------------------------------------------------------------ */
@@ -219,29 +225,98 @@ function ConnectorEditor(props: {
       </label>
 
       <label className="wk-field">
-        <span className="wk-field__label">Role</span>
+        <span className="wk-field__label">Role & Mode</span>
         <div className="wk-segment" role="radiogroup" aria-label="Connector role">
           {(
             [
-              ["insert", "Insert", "Adds a plug that pokes out"],
-              ["receiver", "Socket", "Cuts an opening the plug fills"],
-              ["neutral", "Neutral", "No cut or plug (magnet, hinge…)"],
+              ["insert", "Plug (+)", "Connector (Male plug that pokes out)"],
+              ["receiver", "Socket (-)", "Receiver (Female socket cut)"],
+              ["custom", "Custom", "User-defined custom connector / receiver"],
+              ["neutral", "Neutral", "Face-to-face surface/hinge"],
             ] as const
           ).map(([value, label, hint]) => (
             <button
               key={value}
               type="button"
               role="radio"
-              aria-checked={role === value}
-              className={`wk-segment__btn${role === value ? " wk-segment__btn--on" : ""}`}
+              aria-checked={c.role === value || (c.inverted && value === (c.role === "insert" ? "receiver" : "insert"))}
+              className={`wk-segment__btn${(c.role === value && !c.inverted) || (c.inverted && value === "receiver" && c.role === "insert") ? " wk-segment__btn--on" : ""}`}
               title={hint}
-              onClick={() => setConnectorRole(c.id, value)}
+              onClick={() => {
+                if (value === "custom") {
+                  setConnectorRole(c.id, "custom");
+                  setConnectorInverted(c.id, false);
+                } else if (value === "receiver") {
+                  setConnectorRole(c.id, "receiver");
+                  setConnectorInverted(c.id, false);
+                } else if (value === "insert") {
+                  setConnectorRole(c.id, "insert");
+                  setConnectorInverted(c.id, false);
+                } else {
+                  setConnectorRole(c.id, "neutral");
+                  setConnectorInverted(c.id, false);
+                }
+              }}
             >
               {label}
             </button>
           ))}
         </div>
       </label>
+
+      {c.role === "custom" && (
+        <label className="wk-field" style={{ marginTop: 6 }}>
+          <span className="wk-field__label">Custom Connector Name</span>
+          <input
+            type="text"
+            className="wk-input"
+            value={c.customTypeName ?? ""}
+            placeholder="e.g. CustomJoint, PinSocket..."
+            onChange={(e) => setConnectorCustomType(c.id, e.target.value)}
+          />
+        </label>
+      )}
+
+      {/* Auto-Connect & Snap Action */}
+      <div className="wk-field" style={{ marginTop: 8 }}>
+        <span className="wk-field__label">Auto-Connect & Snap</span>
+        <button
+          type="button"
+          className="wk-btn wk-btn--primary"
+          style={{ width: "100%", justifyContent: "center", fontWeight: 700 }}
+          onClick={() => connectPortPair(c.id)}
+          title="Automatically snap and join target part to matching Receiver/Plug in 3D"
+        >
+          ⚡ Snap & Connect to Partner
+        </button>
+      </div>
+
+      {/* Rotation Controls */}
+      <div className="wk-field" style={{ marginTop: 8 }}>
+        <span className="wk-field__label">Rotation & Orientation</span>
+        <div style={{ display: "flex", gap: 6, width: "100%" }}>
+          <button
+            type="button"
+            className="wk-btn wk-btn--ghost"
+            style={{ flex: 1, fontSize: 11, justifyContent: "center" }}
+            onClick={() => rotateConnector(c.id, 90)}
+            title="Rotate Connector Facing +90°"
+          >
+            ↻ Facing +90°
+          </button>
+          {part && (
+            <button
+              type="button"
+              className="wk-btn wk-btn--ghost"
+              style={{ flex: 1, fontSize: 11, justifyContent: "center" }}
+              onClick={() => rotatePart(part.id, 90)}
+              title="Rotate Part +90°"
+            >
+              ⟳ Part +90°
+            </button>
+          )}
+        </div>
+      </div>
 
       <label className="wk-field">
         <span className="wk-field__label">Pattern</span>
@@ -489,7 +564,26 @@ function PartEditor(props: { part: Part; project: Project; unit: Unit }): JSX.El
         />
       </label>
 
-      <div className="wk-section-title">Transform</div>
+      <div className="wk-section-title">Transform & Rotation</div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+        <button
+          type="button"
+          className="wk-btn wk-btn--ghost"
+          style={{ flex: 1, fontSize: 11, justifyContent: "center" }}
+          onClick={() => rotatePart(part.id, 90)}
+        >
+          ⟳ Rotate +90°
+        </button>
+        <button
+          type="button"
+          className="wk-btn wk-btn--ghost"
+          style={{ flex: 1, fontSize: 11, justifyContent: "center" }}
+          onClick={() => rotatePart(part.id, -90)}
+        >
+          ⟲ Rotate -90°
+        </button>
+      </div>
+
       <NumField
         label="Rotation°"
         valueMm={part.transform.rotation}
@@ -497,6 +591,44 @@ function PartEditor(props: { part: Part; project: Project; unit: Unit }): JSX.El
         raw
         onCommit={(deg) => updatePartTransform(part.id, { rotation: deg })}
       />
+
+      <div className="wk-section-title">
+        Create Port Pair (Plug & Receiver)
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+        <button
+          type="button"
+          className="wk-btn wk-btn--primary"
+          style={{ fontSize: 11, justifyContent: "center" }}
+          onClick={() => createPortPair(part.id, undefined, "tab")}
+        >
+          + Add Tab & Slot Pair (12mm)
+        </button>
+        <button
+          type="button"
+          className="wk-btn wk-btn--ghost"
+          style={{ fontSize: 11, justifyContent: "center" }}
+          onClick={() => createPortPair(part.id, undefined, "peg", { diameter: 6 })}
+        >
+          + Add Peg & Hole Pair (6mm)
+        </button>
+        <button
+          type="button"
+          className="wk-btn wk-btn--ghost"
+          style={{ fontSize: 11, justifyContent: "center" }}
+          onClick={() => createPortPair(part.id, undefined, "dowel", { diameter: 8 })}
+        >
+          + Add Dowel & Socket Pair (8mm)
+        </button>
+        <button
+          type="button"
+          className="wk-btn wk-btn--ghost"
+          style={{ fontSize: 11, justifyContent: "center" }}
+          onClick={() => createPortPair(part.id, undefined, "custom", { customTypeName: "CustomJoint" })}
+        >
+          + Add Custom Joint Pair
+        </button>
+      </div>
 
       <div className="wk-section-title">
         Connectors ({part.connectors.length})

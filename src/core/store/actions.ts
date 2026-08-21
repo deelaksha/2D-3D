@@ -384,6 +384,16 @@ export function setConnectorPattern(connectorId: string, pattern: import("../mod
   updateConnector(connectorId, { pattern }, `Set connector pattern to ${pattern}`);
 }
 
+/** Toggle opposite / inverted (negative) polarity mode on a connector. */
+export function setConnectorInverted(connectorId: string, inverted: boolean): void {
+  updateConnector(connectorId, { inverted }, inverted ? "Set connector to Inverted (Negative) mode" : "Set connector to Normal mode");
+}
+
+/** Set custom connector/receiver type name. */
+export function setConnectorCustomType(connectorId: string, customTypeName: string): void {
+  updateConnector(connectorId, { customTypeName }, `Set custom connector type to ${customTypeName}`);
+}
+
 /** Rotate connector orientation angle (degrees CW). */
 export function rotateConnector(connectorId: string, angleDeltaDeg: number): void {
   const found = findConnector(connectorId);
@@ -442,6 +452,165 @@ export function createComplementConnector(connectorId: string): string | null {
   store.endGesture(`Add matching ${to}`);
   selectConnector(newId);
   return newId;
+}
+
+/** Auto-generate a clean, intuitive port label (e.g. "Port A1", "Port A2", "Port B1"). */
+export function generateNextPortLabel(project: import("../model/types").Project): string {
+  let count = 1;
+  for (const p of project.parts) {
+    for (const c of p.connectors) {
+      if (c.name.startsWith("Port ")) {
+        count++;
+      }
+    }
+  }
+  const index = Math.floor((count - 1) / 2) + 1;
+  const letter = String.fromCharCode(65 + Math.floor((index - 1) / 9));
+  const num = ((index - 1) % 9) + 1;
+  return `Port ${letter}${num}`;
+}
+
+/**
+ * Creates a matched Connector (Plug) and Receiver (Socket) pair with exact matching dimensions.
+ */
+export function createPortPair(
+  sourcePartId: string,
+  targetPartId?: string,
+  type: ConnectorType = "tab",
+  overrides?: Partial<Connector>
+): { plugId: string; receiverId: string } | null {
+  const project = store.getState().project;
+  const sourcePart = project.parts.find((p) => p.id === sourcePartId);
+  if (!sourcePart) return null;
+
+  const targetPart =
+    (targetPartId ? project.parts.find((p) => p.id === targetPartId) : null) ||
+    project.parts.find((p) => p.id !== sourcePartId) ||
+    sourcePart;
+
+  const label = generateNextPortLabel(project);
+  const recType = complementType(type);
+
+  store.beginGesture();
+
+  // 1. Create Plug (Connector)
+  const plugPos = { x: Math.round(sourcePart.shape.width / 2), y: 0 };
+  const plugId = addConnector(sourcePart.id, type, plugPos, {
+    name: `${label} (Plug)`,
+    role: "insert",
+    width: 12,
+    height: 4,
+    depth: sourcePart.thickness,
+    tolerance: 0.2,
+    ...overrides,
+  });
+
+  // 2. Create Receiver (Socket) with EXACT matching dimensions
+  const recPos = { x: Math.round(targetPart.shape.width / 2), y: 0 };
+  const receiverId = addConnector(targetPart.id, recType, recPos, {
+    name: `${label} (Receiver)`,
+    role: "receiver",
+    width: overrides?.width ?? 12,
+    height: overrides?.height ?? 4,
+    depth: targetPart.thickness,
+    tolerance: overrides?.tolerance ?? 0.2,
+    diameter: overrides?.diameter,
+    pattern: overrides?.pattern,
+    customTypeName: overrides?.customTypeName,
+    compatibleWith: [plugId],
+  });
+
+  // Cross-link Plug to Receiver
+  updateConnector(plugId, { compatibleWith: [receiverId] }, "Link port pair");
+
+  store.endGesture(`Created ${label} Plug & Receiver Pair`);
+  selectConnector(plugId);
+
+  return { plugId, receiverId };
+}
+
+/**
+ * Automatically connect and snap a Plug & Receiver pair in 3D/2D space.
+ */
+export function connectPortPair(sourceConnectorId: string, targetConnectorId?: string): boolean {
+  const project = store.getState().project;
+  const src = locateConnector(sourceConnectorId);
+  if (!src) return false;
+
+  let tgt = targetConnectorId ? locateConnector(targetConnectorId) : null;
+
+  // Find partner if targetConnectorId not explicitly given
+  if (!tgt) {
+    for (const p of project.parts) {
+      for (const c of p.connectors) {
+        if (c.id !== sourceConnectorId) {
+          if (
+            (src.connector.compatibleWith ?? []).includes(c.id) ||
+            (c.compatibleWith ?? []).includes(sourceConnectorId)
+          ) {
+            tgt = { part: p, connector: c };
+            break;
+          }
+        }
+      }
+      if (tgt) break;
+    }
+  }
+
+  if (!tgt) return false;
+
+  const { part: sourcePart, connector: sourceConn } = src;
+  const { part: targetPart, connector: targetConn } = tgt;
+
+  // Add connection
+  addConnection({
+    sourcePart: sourcePart.id,
+    sourceConnector: sourceConn.id,
+    targetPart: targetPart.id,
+    targetConnector: targetConn.id,
+    status: "valid",
+    reason: `Connected ${sourceConn.name} ⚡ ${targetConn.name}`,
+  });
+
+  // Snap target part in 3D scene if target is in assembly placements
+  const sourcePlacement = project.assembly.placements.find((pl) => pl.partId === sourcePart.id);
+  const sourcePos = sourcePlacement?.position ?? { x: sourcePart.transform.x, y: -sourcePart.transform.y, z: 0 };
+  const sourceRot = sourcePlacement?.rotation ?? { x: 0, y: 0, z: sourcePart.transform.rotation };
+
+  const targetRotZ = (sourceRot.z + (sourceConn.orientation - targetConn.orientation)) % 360;
+  const sourceConnWorldX = sourcePos.x + sourceConn.position.x;
+  const sourceConnWorldY = sourcePos.y - sourceConn.position.y;
+  const sourceConnWorldZ = sourcePos.z + sourcePart.thickness;
+
+  placePart(
+    targetPart.id,
+    {
+      x: Math.round(sourceConnWorldX - targetConn.position.x),
+      y: Math.round(sourceConnWorldY + targetConn.position.y),
+      z: Math.round(sourceConnWorldZ),
+    },
+    { x: sourceRot.x, y: sourceRot.y, z: targetRotZ }
+  );
+
+  return true;
+}
+
+/**
+ * Rotate a part by deltaDeg (default 90 degrees).
+ */
+export function rotatePart(partId: string, deltaDeg: number = 90): void {
+  const project = store.getState().project;
+  const part = project.parts.find((p) => p.id === partId);
+  if (!part) return;
+
+  const newRot = ((part.transform.rotation + deltaDeg) % 360 + 360) % 360;
+  updatePartTransform(partId, { rotation: newRot }, `Rotate part to ${newRot}°`);
+
+  // Update 3D placement rotation if placed
+  const pl = project.assembly.placements.find((p) => p.partId === partId);
+  if (pl) {
+    placePart(partId, pl.position, { ...pl.rotation, z: newRot });
+  }
 }
 
 /**
@@ -646,7 +815,7 @@ export function selectConnector(id: string | null): void {
   store.setUI({ selectedConnectorId: id });
 }
 
-export function setMode(mode: "2d" | "3d"): void {
+export function setMode(mode: "2d" | "3d" | "board"): void {
   store.setUI({ mode });
 }
 

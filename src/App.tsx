@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect } from "react";
+import { Component, lazy, Suspense, useEffect, type ReactNode } from "react";
+import { makeProject } from "./core/model/defaults";
 import { store, useUI } from "./core/store/store";
 import {
   clearSelection,
@@ -21,7 +22,61 @@ const Canvas3D = lazy(() => import("./ui/canvas3d/Canvas3D"));
 import LayersPanel from "./ui/panels/LayersPanel";
 import PartsPanel from "./ui/panels/PartsPanel";
 import Inspector from "./ui/panels/Inspector";
+import CanvasBoard from "./ui/board/CanvasBoard";
 import CommandPalette from "./ui/palette/CommandPalette";
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.error("App Error Boundary caught error:", error, errorInfo);
+  }
+
+  handleReset = () => {
+    try {
+      localStorage.removeItem("woodkit.project");
+    } catch {}
+    store.loadProject(makeProject(), "Reset project");
+    this.setState({ hasError: false, error: null });
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: "var(--wk-bg, #0f1117)", color: "var(--wk-ink, #f1f5f9)", fontFamily: "sans-serif", padding: 20, textAlign: "center" }}>
+          <h2 style={{ fontSize: 22, color: "#ef4444" }}>Something went wrong</h2>
+          <p style={{ maxWidth: 500, opacity: 0.8, fontSize: 14 }}>
+            An unexpected error occurred. Click below to reset to a clean project.
+          </p>
+          <button
+            type="button"
+            onClick={this.handleReset}
+            style={{ padding: "10px 20px", background: "#ef8c3b", color: "#ffffff", border: "none", borderRadius: 8, fontWeight: 700, cursor: "pointer", marginTop: 12 }}
+          >
+            Reset & Start Fresh
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /** The right-hand column: Parts/Layers tabs + inspector below. */
 function RightColumn() {
@@ -52,7 +107,7 @@ function RightColumn() {
   );
 }
 
-export function App() {
+function AppContent() {
   const ui = useUI();
 
   // Global keyboard: palette, undo/redo, delete, and single-key tool shortcuts.
@@ -147,8 +202,7 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // 3D is a clean, read-only preview: only the top bar (to switch back) + the
-  // 3D canvas. All 2D chrome (toolbox, panels, status, palette) is hidden.
+  // 3D is a clean preview: top bar + 3D canvas.
   if (ui.mode === "3d") {
     return (
       <div className="wk-app wk-app--3d">
@@ -163,6 +217,18 @@ export function App() {
           >
             <Canvas3D />
           </Suspense>
+        </div>
+      </div>
+    );
+  }
+
+  // Board is the dedicated printable sheet layout & nesting page.
+  if (ui.mode === "board") {
+    return (
+      <div className="wk-app wk-app--board">
+        <TopBar />
+        <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+          <CanvasBoard />
         </div>
       </div>
     );
@@ -183,5 +249,13 @@ export function App() {
       <StatusBar />
       {ui.commandPaletteOpen && <CommandPalette />}
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
   );
 }

@@ -171,15 +171,17 @@ export type ConnectorType =
   | "snap"
   | "edge"
   | "corner"
-  | "surface";
+  | "surface"
+  | "custom";
 
 /**
  * A connector's physical role:
  *  - "insert"   — male: adds a matching piece that pokes OUT (tab, peg, dowel…)
  *  - "receiver" — female: cuts an opening the insert plugs into (slot, hole, notch…)
  *  - "neutral"  — mates face-to-face, no added or removed material (magnet, hinge…)
+ *  - "custom"   — custom connector/receiver definition
  */
-export type ConnectorRole = "insert" | "receiver" | "neutral";
+export type ConnectorRole = "insert" | "receiver" | "neutral" | "custom";
 
 /** Custom physical design patterns for connectors. */
 export type ConnectorPattern =
@@ -199,10 +201,14 @@ export interface Connector {
   partId: ID;
   name: string;
   type: ConnectorType;
-  /** Male (adds a plug) vs female (cuts a socket) vs neutral. Drives geometry. */
+  /** Male (adds a plug) vs female (cuts a socket) vs neutral vs custom. Drives geometry. */
   role?: ConnectorRole;
+  /** Opposite / inverted / negative mode: flips plug ↔ socket geometry and mating logic. */
+  inverted?: boolean;
   /** Custom joint shape pattern (dovetail, puzzle key, t-slot, finger-teeth, wave). */
   pattern?: ConnectorPattern;
+  /** Custom connector/receiver type name when type/role is custom. */
+  customTypeName?: string;
   /** Local position on the part (mm). */
   position: Vec2;
   /** Facing direction (degrees CW, 0 = +X). */

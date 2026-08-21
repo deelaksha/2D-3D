@@ -13,7 +13,7 @@ import { useSyncExternalStore } from "react";
 import type { IssueLevel, Project } from "../model/types";
 import { makeProject } from "../model/defaults";
 
-export type EditorMode = "2d" | "3d";
+export type EditorMode = "2d" | "3d" | "board";
 export type PanelTab = "layers" | "parts";
 export type StatusLevel = IssueLevel | "info";
 

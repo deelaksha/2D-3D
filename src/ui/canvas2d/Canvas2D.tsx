@@ -116,6 +116,7 @@ const CONNECTOR_COLOR: Record<ConnectorType, string> = {
   edge: "var(--wk-blue)",
   corner: "var(--wk-amber)",
   surface: "var(--wk-ink-soft)",
+  custom: "var(--wk-purple)",
 };
 
 /* ------------------------------------------------------------------ */

@@ -11,9 +11,11 @@ import {
 
 import { CATEGORY_META, type ToolCategory } from "@/tools/toolTypes";
 
+import { houseDemo } from "@/data/houseDemo";
+
 /** Category launchers — each opens the command palette scoped to ONE category.
  * Labels are pulled from CATEGORY_META so the button matches the palette's scope chip. */
-const CATEGORY_SCOPES: ToolCategory[] = ["geometry", "connector", "joinery", "transform", "measure", "layout"];
+const CATEGORY_SCOPES: ToolCategory[] = ["geometry", "transform", "measure", "layout"];
 const CATEGORY_MENUS = CATEGORY_SCOPES.map((scope) => ({ scope, label: CATEGORY_META[scope]?.label ?? scope }));
 
 function openScoped(scope: string) {
@@ -110,6 +112,7 @@ export default function TopBar() {
 
   const fileItems: MenuItem[] = [
     { kind: "action", label: "New project", run: handleNew },
+    { kind: "action", label: "🏠 Load House Kit Template", run: () => store.loadProject(houseDemo(), "Loaded House Kit Template") },
     { kind: "sep" },
     { kind: "action", label: "Import…", run: () => openImportDialog() },
     { kind: "action", label: "Export…", run: () => downloadProject() },
@@ -175,7 +178,7 @@ export default function TopBar() {
 
       <div className="wk-spacer" />
 
-      {/* 2D design ⇄ 3D preview (read-only view of the same design) */}
+      {/* Mode Switcher: 2D Design ⇄ 3D Assembly ⇄ Board Sheet Layout */}
       <div className="wk-modeswitch" role="tablist" aria-label="View mode">
         <button
           type="button"
@@ -193,9 +196,19 @@ export default function TopBar() {
           aria-selected={mode === "3d"}
           className={`wk-modeswitch__btn${mode === "3d" ? " wk-modeswitch__btn--active" : ""}`}
           onClick={() => setMode("3d")}
-          title="View your design in 3D"
+          title="View & join design in 3D"
         >
           3D
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === "board"}
+          className={`wk-modeswitch__btn${mode === "board" ? " wk-modeswitch__btn--active" : ""}`}
+          onClick={() => setMode("board")}
+          title="Printable board layout & nesting"
+        >
+          Board
         </button>
       </div>
 

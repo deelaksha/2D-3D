@@ -15,7 +15,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { useProject } from "@/core/store/store";
+import { store, useProject } from "@/core/store/store";
 import {
   addConnection,
   clear3DScene,
@@ -31,7 +31,6 @@ import {
 import { checkCompatibility } from "@/core/connectors/compat";
 import { materialOf } from "@/core/model/defaults";
 import {
-  autoConnectProject,
   applyExplodeFactor,
   buildProjectObject,
   calculateMatingTransform,
@@ -41,18 +40,7 @@ import {
 
 export type EnvTheme = "dark" | "workshop" | "light" | "cyber";
 
-interface HoveredInfo {
-  isConnector?: boolean;
-  name: string;
-  type?: string;
-  role?: string;
-  thickness?: number;
-  material?: string;
-  colorHex?: string;
-  partName?: string;
-  screenX: number;
-  screenY: number;
-}
+
 
 interface SelectedConnector {
   connectorId: string;
@@ -240,7 +228,6 @@ export default function Canvas3D(): JSX.Element {
   const [autoRotate, setAutoRotate] = useState<boolean>(false);
   const [showGrid, setShowGrid] = useState<boolean>(true);
   const [showConnectors, setShowConnectors] = useState<boolean>(true);
-  const [hoveredInfo, setHoveredInfo] = useState<HoveredInfo | null>(null);
 
 
   // 3D Mating & Connection Controls
@@ -374,6 +361,10 @@ export default function Canvas3D(): JSX.Element {
     viewerRef.current = viewer;
 
     let dragging = false;
+    let draggingPartId: string | null = null;
+    const dragPlane = new THREE.Plane();
+    const dragOffset = new THREE.Vector3();
+    let dragStartRot = { x: 0, y: 0, z: 0 };
     let isPan = false;
     let px = 0;
     let py = 0;
@@ -381,44 +372,139 @@ export default function Canvas3D(): JSX.Element {
     let downY = 0;
 
     const onDown = (e: PointerEvent) => {
-      dragging = true;
-      isPan = e.button === 2 || e.button === 1 || e.shiftKey;
       px = e.clientX;
       py = e.clientY;
       downX = e.clientX;
       downY = e.clientY;
+      draggingPartId = null;
+
+      isPan = e.button === 2 || e.button === 1 || e.shiftKey;
+
+      if (e.button === 0 && !e.shiftKey && viewer.group && mount) {
+        const rect = mount.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+        const intersects = raycaster.intersectObjects(viewer.group.children, true);
+
+        for (const hit of intersects) {
+          const data = hit.object.userData;
+          if (data && data.isConnector) {
+            break;
+          }
+          if (data && data.partId) {
+            draggingPartId = data.partId;
+            const projectState = store.getState().project;
+            const placement = projectState.assembly.placements.find((pl) => pl.partId === data.partId);
+            const partStartPos = placement?.position ?? { x: 0, y: 0, z: 0 };
+            dragStartRot = placement?.rotation ?? { x: 0, y: 0, z: 0 };
+
+            const camDir = new THREE.Vector3();
+            camera.getWorldDirection(camDir);
+            const dotZ = Math.abs(camDir.z);
+
+            if (dotZ > 0.15) {
+              dragPlane.set(new THREE.Vector3(0, 0, 1), -partStartPos.z);
+            } else {
+              camDir.negate();
+              dragPlane.setFromNormalAndCoplanarPoint(camDir, hit.point);
+            }
+
+            const hitIntersect = new THREE.Vector3();
+            const hasHit = raycaster.ray.intersectPlane(dragPlane, hitIntersect);
+            if (hasHit) {
+              dragOffset.subVectors(new THREE.Vector3(partStartPos.x, partStartPos.y, partStartPos.z), hitIntersect);
+            } else {
+              dragOffset.set(0, 0, 0);
+            }
+
+            renderer.domElement.style.cursor = "grabbing";
+            break;
+          }
+        }
+      }
+
+      if (!draggingPartId) {
+        dragging = true;
+      }
       renderer.domElement.setPointerCapture(e.pointerId);
     };
 
     const onMove = (e: PointerEvent) => {
-      if (!dragging) return;
       const dx = e.clientX - px;
       const dy = e.clientY - py;
       px = e.clientX;
       py = e.clientY;
 
-      if (isPan) {
-        const panSpeed = spherical.radius * 0.0012;
-        const right = new THREE.Vector3();
-        const up = new THREE.Vector3();
-        camera.matrix.extractBasis(right, up, new THREE.Vector3());
-        targetGoal.addScaledVector(right, -dx * panSpeed);
-        targetGoal.addScaledVector(up, dy * panSpeed);
-      } else {
-        sphericalGoal.theta -= dx * 0.008;
-        sphericalGoal.phi -= dy * 0.008;
-        sphericalGoal.phi = Math.max(0.02, Math.min(Math.PI - 0.02, sphericalGoal.phi));
+      if (draggingPartId && mount) {
+        const rect = mount.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+
+        const intersectPt = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(dragPlane, intersectPt)) {
+          const newPos = intersectPt.add(dragOffset);
+          placePart(
+            draggingPartId,
+            { x: Math.round(newPos.x), y: Math.round(newPos.y), z: Math.round(newPos.z) },
+            dragStartRot
+          );
+        }
+        return;
+      }
+
+      if (dragging) {
+        if (isPan) {
+          const panSpeed = spherical.radius * 0.0012;
+          const right = new THREE.Vector3();
+          const up = new THREE.Vector3();
+          camera.matrix.extractBasis(right, up, new THREE.Vector3());
+          targetGoal.addScaledVector(right, -dx * panSpeed);
+          targetGoal.addScaledVector(up, dy * panSpeed);
+        } else {
+          sphericalGoal.theta -= dx * 0.008;
+          sphericalGoal.phi -= dy * 0.008;
+          sphericalGoal.phi = Math.max(0.02, Math.min(Math.PI - 0.02, sphericalGoal.phi));
+        }
+        return;
+      }
+
+      if (viewer.group && mount && e.buttons === 0) {
+        const rect = mount.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+        const intersects = raycaster.intersectObjects(viewer.group.children, true);
+        let hitPart = false;
+        for (const hit of intersects) {
+          if (hit.object.userData && hit.object.userData.partId && !hit.object.userData.isConnector) {
+            hitPart = true;
+            break;
+          }
+        }
+        renderer.domElement.style.cursor = hitPart ? "grab" : "default";
       }
     };
 
     const onUp = (e: PointerEvent) => {
+      const wasPartDragging = !!draggingPartId;
+      draggingPartId = null;
       dragging = false;
+
+      renderer.domElement.style.cursor = "default";
       if (renderer.domElement.hasPointerCapture(e.pointerId)) {
         renderer.domElement.releasePointerCapture(e.pointerId);
       }
 
       const moveDist = Math.hypot(e.clientX - downX, e.clientY - downY);
-      if (moveDist < 5) {
+      if (moveDist < 5 && !wasPartDragging) {
         handleCanvasClick(e.clientX, e.clientY);
       }
     };
@@ -619,66 +705,19 @@ export default function Canvas3D(): JSX.Element {
     }
   };
 
-  /* ---- Interactive Pointer Move for Tooltip ---- */
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const v = viewerRef.current;
-    if (!v || !v.group || !mountRef.current) {
-      setHoveredInfo(null);
-      return;
-    }
 
-    const rect = mountRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(new THREE.Vector2(x, y), v.camera);
-
-    const intersects = raycaster.intersectObjects(v.group.children, true);
-    if (intersects.length > 0) {
-      const hit = intersects[0].object;
-      const data = hit.userData;
-      if (data && data.isConnector) {
-        setHoveredInfo({
-          isConnector: true,
-          name: data.connectorName,
-          type: data.connectorType,
-          role: data.connectorRole,
-          partName: data.partName,
-          screenX: e.clientX,
-          screenY: e.clientY,
-        });
-        return;
-      } else if (data && data.partName) {
-        setHoveredInfo({
-          isConnector: false,
-          name: data.partName,
-          thickness: data.thickness,
-          material: data.materialName,
-          colorHex: data.colorHex ?? "#c8a25a",
-          screenX: e.clientX,
-          screenY: e.clientY,
-        });
-        return;
-      }
-    }
-    setHoveredInfo(null);
-  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const handleAutoConnect = () => {
-    autoConnectProject(project);
-    showToast("Auto-connected all compatible joints in 3D!");
-  };
+
 
   const handleAddPartToScene = (partId: string) => {
     const p = project.parts.find((x) => x.id === partId);
     if (!p) return;
-    placePart(partId, { x: p.transform.x, y: -p.transform.y, z: 0 }, { x: 0, y: 0, z: p.transform.rotation });
+    placePart(partId, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
     showToast(`Added ${p.name} to 3D scene`);
   };
 
@@ -694,10 +733,35 @@ export default function Canvas3D(): JSX.Element {
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(new THREE.Vector2(x, y), v.camera);
 
-    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    let dropPos = { x: 0, y: 0, z: 0 };
+    let hasDropPos = false;
+
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
     const targetPt = new THREE.Vector3();
-    raycaster.ray.intersectPlane(plane, targetPt);
-    const dropPos = targetPt ? { x: Math.round(targetPt.x), y: Math.round(targetPt.y), z: 0 } : { x: 0, y: 0, z: 0 };
+    let hitGround = raycaster.ray.intersectPlane(groundPlane, targetPt);
+    if (!hitGround) {
+      const groundPlaneFlip = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
+      hitGround = raycaster.ray.intersectPlane(groundPlaneFlip, targetPt);
+    }
+    if (hitGround) {
+      dropPos = { x: Math.round(targetPt.x), y: Math.round(targetPt.y), z: 0 };
+      hasDropPos = true;
+    }
+
+    if (v.group) {
+      const intersects = raycaster.intersectObjects(v.group.children, true);
+      for (const hit of intersects) {
+        if (hit.object.userData && hit.object.userData.partId) {
+          dropPos = {
+            x: Math.round(hit.point.x),
+            y: Math.round(hit.point.y),
+            z: Math.round(hit.point.z),
+          };
+          hasDropPos = true;
+          break;
+        }
+      }
+    }
 
     // Check if dragging a Material
     const materialId = e.dataTransfer.getData("materialId");
@@ -731,7 +795,7 @@ export default function Canvas3D(): JSX.Element {
     }
 
     // Check if dragging a Part
-    const partId = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("partId");
+    const partId = e.dataTransfer.getData("partId") || e.dataTransfer.getData("text/plain");
     if (partId) {
       const p = project.parts.find((x) => x.id === partId);
       if (!p) return;
@@ -780,8 +844,6 @@ export default function Canvas3D(): JSX.Element {
     <div
       className="wk-canvas3d"
       style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}
-      onPointerMove={handlePointerMove}
-      onPointerLeave={() => setHoveredInfo(null)}
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDropPartOnCanvas}
     >
@@ -894,10 +956,13 @@ export default function Canvas3D(): JSX.Element {
                     key={p.id}
                     className="wk-3d-library-card"
                     draggable={true}
-                    onDragStart={(e) => e.dataTransfer.setData("text/plain", p.id)}
-                    onClick={() => handleAddPartToScene(p.id)}
-                    style={{ cursor: "pointer" }}
-                    title="Click or drag onto 3D viewport to place"
+                    onDragStart={(e) => {
+                      e.dataTransfer.effectAllowed = "copyMove";
+                      e.dataTransfer.setData("text/plain", p.id);
+                      e.dataTransfer.setData("partId", p.id);
+                    }}
+                    style={{ cursor: "grab" }}
+                    title="Drag onto 3D viewport to place at position, or click + Add"
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ fontWeight: 700, fontSize: 13, color: "var(--wk-ink)" }}>{p.name}</span>
@@ -918,6 +983,17 @@ export default function Canvas3D(): JSX.Element {
                     </div>
                     {/* Visual Naked-Eye 3D/2D Object Thumbnail Preview */}
                     <PartThumbnail part={p} materialColor={mat?.color ?? "#c8a25a"} />
+                    <button
+                      type="button"
+                      className="wk-btn wk-btn--ghost"
+                      style={{ fontSize: 11, width: "100%", justifyContent: "center", marginTop: 4 }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAddPartToScene(p.id);
+                      }}
+                    >
+                      + Add to Scene
+                    </button>
                   </div>
                 );
 
@@ -1012,15 +1088,7 @@ export default function Canvas3D(): JSX.Element {
           </button>
 
 
-          <button
-            type="button"
-            className="wk-3d-btn"
-            onClick={handleAutoConnect}
-            title="Auto-connect all matching tab-slots and peg-holes in 3D"
-            style={{ color: "var(--wk-accent-ink)", fontWeight: 700 }}
-          >
-            ✦ Auto-Connect All
-          </button>
+
         </div>
       </div>
 
@@ -1093,7 +1161,7 @@ export default function Canvas3D(): JSX.Element {
           <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
             {project.assembly.connections.length === 0 ? (
               <div style={{ color: "var(--wk-ink-faint)", fontSize: 12, textAlign: "center", padding: 12 }}>
-                No 3D connections saved yet. Click connectors on 3D parts to link them, or hit <strong>Auto-Connect All</strong>!
+                No 3D connections saved yet. Click connectors on 3D parts to link them!
               </div>
             ) : (
               project.assembly.connections.map((cnx) => {
@@ -1140,66 +1208,7 @@ export default function Canvas3D(): JSX.Element {
         </div>
       )}
 
-      {/* ---- Dynamic Hover Inspection Tooltip ---- */}
-      {hoveredInfo && (
-        <div
-          className="wk-3d-inspect-tooltip"
-          style={{
-            left: hoveredInfo.screenX,
-            top: hoveredInfo.screenY,
-          }}
-        >
-          {hoveredInfo.isConnector ? (
-            <>
-              <div className="wk-3d-inspect-title">
-                <span
-                  style={{
-                    display: "inline-block",
-                    width: 10,
-                    height: 10,
-                    borderRadius: "50%",
-                    background: hoveredInfo.role === "insert" ? "#22c55e" : hoveredInfo.role === "receiver" ? "#3b82f6" : "#f59e0b",
-                  }}
-                />
-                Connector: {hoveredInfo.name}
-              </div>
-              <div className="wk-3d-inspect-row">
-                <span>Part:</span>
-                <span className="wk-3d-inspect-val">{hoveredInfo.partName}</span>
-              </div>
-              <div className="wk-3d-inspect-row">
-                <span>Type:</span>
-                <span className="wk-3d-inspect-val" style={{ textTransform: "capitalize" }}>
-                  {hoveredInfo.type} ({hoveredInfo.role})
-                </span>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="wk-3d-inspect-title">
-                <span
-                  style={{
-                    display: "inline-block",
-                    width: 10,
-                    height: 10,
-                    borderRadius: "50%",
-                    background: hoveredInfo.colorHex,
-                  }}
-                />
-                {hoveredInfo.name}
-              </div>
-              <div className="wk-3d-inspect-row">
-                <span>Material:</span>
-                <span className="wk-3d-inspect-val">{hoveredInfo.material}</span>
-              </div>
-              <div className="wk-3d-inspect-row">
-                <span>Thickness:</span>
-                <span className="wk-3d-inspect-val">{hoveredInfo.thickness} mm</span>
-              </div>
-            </>
-          )}
-        </div>
-      )}
+
     </div>
   );
 }

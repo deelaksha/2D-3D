@@ -10,7 +10,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "@/App";
 import { store } from "@/core/store/store";
-import { houseDemo } from "@/data/houseDemo";
+import { makeProject } from "@/core/model/defaults";
 import { registerAllTools } from "@/tools";
 import { registry } from "@/tools/registry";
 
@@ -18,7 +18,7 @@ import { registry } from "@/tools/registry";
 
 beforeAll(() => {
   registerAllTools();
-  store.loadProject(houseDemo());
+  store.loadProject(makeProject());
 });
 
 describe("App mounts", () => {
@@ -33,13 +33,11 @@ describe("App mounts", () => {
     act(() => {
       root.render(<App />);
     });
-    const html = host.innerHTML;
     // Shell + panels are present.
     expect(host.querySelector(".wk-app")).toBeTruthy();
     expect(host.querySelector(".wk-topbar")).toBeTruthy();
     expect(host.querySelector(".wk-status")).toBeTruthy();
-    // The House demo parts surfaced somewhere in the panels.
-    expect(html).toMatch(/Wall|Base|Roof/);
+    expect(host.querySelector(".wk-panel")).toBeTruthy();
     act(() => root.unmount());
   });
 

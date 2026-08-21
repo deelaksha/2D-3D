@@ -7,10 +7,10 @@
  */
 import * as THREE from "three";
 import type { Connection, Connector, Part, Placement, Project, Vec2, Vec3 } from "@/core/model/types";
-import { partOutlineWorld, partModifiersWorld } from "@/core/geometry/world";
+import { shapeOutline } from "@/core/geometry/outline";
 import { materialOf } from "@/core/model/defaults";
 import { checkCompatibility, connectorFamily } from "@/core/connectors/compat";
-import { defaultRole } from "@/core/connectors/feature";
+import { connectorRole, defaultRole } from "@/core/connectors/feature";
 import { addConnection, placePart } from "@/core/store/actions";
 
 export type RenderMode = "textured" | "solid" | "wireframe" | "xray";
@@ -143,11 +143,13 @@ export function createPartMaterial(colorHex: string, renderMode: RenderMode = "t
 /** Build interactive 3D Connector sphere markers on a part group */
 export function buildConnectorNodes3D(part: Part, thickness: number, group: THREE.Group): void {
   for (const c of part.connectors) {
-    const role = c.role ?? defaultRole(c.type);
+    const role = connectorRole(c);
     let colorHex = 0xf59e0b; // Amber neutral
-    if (role === "insert" || connectorFamily(c.type) === "insert") {
+    if (role === "custom" || c.type === "custom") {
+      colorHex = 0xa855f7; // Purple custom
+    } else if (role === "insert") {
       colorHex = 0x22c55e; // Green insert
-    } else if (role === "receiver" || connectorFamily(c.type) === "receive") {
+    } else if (role === "receiver") {
       colorHex = 0x3b82f6; // Blue receiver
     }
 
@@ -161,8 +163,8 @@ export function buildConnectorNodes3D(part: Part, thickness: number, group: THRE
     });
 
     const marker = new THREE.Mesh(sphereGeo, sphereMat);
-    const posX = c.position.x + part.transform.x;
-    const posY = -(c.position.y + part.transform.y);
+    const posX = c.position.x;
+    const posY = -c.position.y;
     marker.position.set(posX, posY, thickness / 2 + 3);
     marker.name = `connector_${c.id}`;
 
@@ -188,11 +190,14 @@ export function buildPartObject(
   part: Part,
   renderMode: RenderMode = "textured"
 ): THREE.Group | null {
-  const loops = partOutlineWorld(part);
+  const loops = shapeOutline(part.shape);
   const outer = loops[0];
   if (!outer || outer.length < 3) return null;
 
-  const mods = partModifiersWorld(part);
+  const mods = part.modifiers.map((m) => ({
+    op: m.op,
+    loops: shapeOutline(m.shape),
+  }));
   const subtract = mods.filter((m) => m.op === "subtract").flatMap((m) => m.loops);
   const union = mods.filter((m) => m.op === "union").flatMap((m) => m.loops);
   const holes = [...loops.slice(1), ...subtract];

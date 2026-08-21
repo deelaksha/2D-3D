@@ -60,10 +60,26 @@ const ROUND_INSERTS: readonly ConnectorType[] = ["peg", "dowel"];
  */
 export function connectorFamily(
   t: ConnectorType,
-): "insert" | "receive" | "neutral" {
+): "insert" | "receive" | "neutral" | "custom" {
+  if (t === "custom") return "custom";
   if (INSERT_TYPES.includes(t)) return "insert";
   if (RECEIVE_TYPES.includes(t)) return "receive";
   return "neutral";
+}
+
+/** Effective family considering connector role override and inverted negative polarity. */
+export function effectiveFamily(c: Connector): "insert" | "receive" | "neutral" | "custom" {
+  let fam = connectorFamily(c.type);
+  if (c.role === "insert") fam = "insert";
+  else if (c.role === "receiver") fam = "receive";
+  else if (c.role === "neutral") fam = "neutral";
+  else if (c.role === "custom") fam = "custom";
+
+  if (c.inverted) {
+    if (fam === "insert") fam = "receive";
+    else if (fam === "receive") fam = "insert";
+  }
+  return fam;
 }
 
 /* ------------------------------------------------------------------ */
@@ -83,6 +99,7 @@ const COMPLEMENTARY_PAIRS: ReadonlyArray<readonly [ConnectorType, ConnectorType]
     ["hinge", "hinge"],
     ["edge", "edge"],
     ["edge", "tab"],
+    ["custom", "custom"],
   ];
 
 /** True when the two types are meant to be joined together. */
@@ -93,6 +110,23 @@ export function areTypesComplementary(
   return COMPLEMENTARY_PAIRS.some(
     ([x, y]) => (a === x && b === y) || (a === y && b === x),
   );
+}
+
+/** Check if two specific connector instances are complementary, taking inverted polarity and custom types into account. */
+export function areConnectorsComplementary(ca: Connector, cb: Connector): boolean {
+  if (ca.type === "custom" || cb.type === "custom" || ca.role === "custom" || cb.role === "custom") {
+    return true;
+  }
+  if (areTypesComplementary(ca.type, cb.type)) return true;
+
+  // If one side has inverted (negative) polarity, check if their effective families complement (insert <-> receive)
+  const famA = effectiveFamily(ca);
+  const famB = effectiveFamily(cb);
+  if ((famA === "insert" && famB === "receive") || (famA === "receive" && famB === "insert")) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -113,6 +147,7 @@ const COMPLEMENT: Record<ConnectorType, ConnectorType> = {
   magnet: "magnet",
   surface: "surface",
   hinge: "hinge",
+  custom: "custom",
 };
 
 export function complementType(t: ConnectorType): ConnectorType {
@@ -395,8 +430,8 @@ export function checkCompatibility(a: Side, b: Side): CompatResult {
   // An explicit allow-list beats the automatic rules.
   const whitelisted = explicitlyAllowed(a, b);
 
-  // Complementary type check.
-  if (!areTypesComplementary(ca.type, cb.type) && !whitelisted) {
+  // Complementary type & inverted polarity check.
+  if (!areConnectorsComplementary(ca, cb) && !whitelisted) {
     return {
       status: "invalid",
       score: 0.1,

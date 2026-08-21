@@ -128,24 +128,43 @@ export function houseDemo(): Project {
    * Neighbour ring: Wall1 -> Wall2 -> Wall3 -> Wall4 -> Wall1.        */
   const wallLayout: Array<{
     n: number;
+    name: string;
     tx: number;
     ty: number;
     leftNeighbor: number; // wall whose RIGHT edge meets this wall's LEFT edge
     rightNeighbor: number; // wall whose LEFT edge meets this wall's RIGHT edge
+    hasWindow?: boolean;
   }> = [
-    { n: 1, tx: 220, ty: 60, leftNeighbor: 4, rightNeighbor: 2 },
-    { n: 2, tx: 220, ty: 200, leftNeighbor: 1, rightNeighbor: 3 },
-    { n: 3, tx: 220, ty: 340, leftNeighbor: 2, rightNeighbor: 4 },
-    { n: 4, tx: 420, ty: 60, leftNeighbor: 3, rightNeighbor: 1 },
+    { n: 1, name: "Wall Plain 1", tx: 220, ty: 60, leftNeighbor: 4, rightNeighbor: 2 },
+    { n: 2, name: "Wall with Window 1", tx: 220, ty: 200, leftNeighbor: 1, rightNeighbor: 3, hasWindow: true },
+    { n: 3, name: "Wall Plain 2", tx: 220, ty: 340, leftNeighbor: 2, rightNeighbor: 4 },
+    { n: 4, name: "Wall with Window 2", tx: 420, ty: 60, leftNeighbor: 3, rightNeighbor: 1, hasWindow: true },
   ];
   for (const w of wallLayout) {
-    const wall = makePart(`Wall ${w.n}`, mat, {
+    const wall = makePart(w.name, mat, {
       type: "wall",
       width: WALL_W,
       height: WALL_H,
       thickness: THICK,
       transform: { x: w.tx, y: w.ty, rotation: 0, scaleX: 1, scaleY: 1, flipX: false, flipY: false },
     });
+
+    if (w.hasWindow) {
+      wall.modifiers.push({
+        id: `win-${w.n}`,
+        op: "subtract",
+        name: "Window Cutout",
+        shape: {
+          kind: "rect",
+          x: WALL_W / 2 - 20,
+          y: WALL_H / 2 - 18,
+          width: 40,
+          height: 36,
+          rotation: 0,
+        },
+      });
+    }
+
     // Bottom edge is local y = WALL_H; tabs face down/out (+Y = 90 CW).
     connect(wall, `Wall${w.n}-BottomLeft`, "tab", WALL_W / 3, WALL_H, 90, {
       compatibleWith: [`Base-Wall${w.n}`],

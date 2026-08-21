@@ -79,6 +79,7 @@ const CONNECTOR_DEFAULTS: Record<ConnectorType, Partial<Connector>> = {
   edge: { width: 20, height: 4, depth: 4, tolerance: 0.3 },
   corner: { width: 12, height: 12, depth: 4, tolerance: 0.3 },
   surface: { width: 16, height: 16, depth: 2, tolerance: 0.5 },
+  custom: { width: 12, height: 6, depth: 4, tolerance: 0.3, role: "custom" },
 };
 
 export function makeConnector(

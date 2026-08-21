@@ -17,13 +17,19 @@ const ROUND_TYPES: readonly ConnectorType[] = ["peg", "dowel", "hole"];
 
 /** The default role for a freshly-placed connector, from its type's family. */
 export function defaultRole(type: ConnectorType): ConnectorRole {
+  if (type === "custom") return "custom";
   const fam = connectorFamily(type);
   return fam === "receive" ? "receiver" : fam === "insert" ? "insert" : "neutral";
 }
 
-/** The effective role of a connector (explicit `role`, else derived from type). */
+/** The effective role of a connector (explicit `role`, derived from type, respecting inverted polarity). */
 export function connectorRole(c: Connector): ConnectorRole {
-  return c.role ?? defaultRole(c.type);
+  let role = c.role ?? defaultRole(c.type);
+  if (c.inverted) {
+    if (role === "insert") role = "receiver";
+    else if (role === "receiver") role = "insert";
+  }
+  return role;
 }
 
 /** Footprint size of a connector's plug/socket in mm: { w, h, round }. */
@@ -51,8 +57,8 @@ export function connectorFeature(c: Connector): { op: BooleanOp; shape: Shape } 
   let kind: ShapeKind = round ? "circle" : c.type === "slot" ? "slot" : "rect";
   let radius: number | undefined = undefined;
 
-  // Custom Pattern Shape Mapping
-  if (pattern === "dovetail") {
+  // Custom Pattern & Custom Type Shape Mapping
+  if (pattern === "dovetail" || c.type === "custom") {
     kind = "trapezoid";
   } else if (pattern === "puzzle") {
     kind = "capsule";
@@ -66,10 +72,12 @@ export function connectorFeature(c: Connector): { op: BooleanOp; shape: Shape } 
     kind = "rect";
   }
 
-  // For an insert, push the plug outward along the connector's facing direction
+  const isInsert = role === "insert";
+
+  // For an insert plug, push outward along the facing direction
   let cx = c.position.x;
   let cy = c.position.y;
-  if (role === "insert") {
+  if (isInsert) {
     const rad = (c.orientation * Math.PI) / 180;
     const reach = (round ? w : h) / 2; // half the depth in the facing direction
     cx += Math.cos(rad) * reach;
@@ -85,5 +93,7 @@ export function connectorFeature(c: Connector): { op: BooleanOp; shape: Shape } 
     radius,
   });
 
-  return { op: role === "receiver" ? "subtract" : "union", shape };
+  const op: BooleanOp = isInsert ? "union" : "subtract";
+
+  return { op, shape };
 }
