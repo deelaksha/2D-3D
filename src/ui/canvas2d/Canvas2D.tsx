@@ -895,13 +895,21 @@ export default function Canvas2D(): JSX.Element {
       {/* zoom HUD (bottom-right) */}
       <div className="wk-canvas__hud wk-canvas__hud--right" style={{ top: "auto", bottom: "var(--wk-s3)" }}>
         <div className="wk-hud-card">
+          <button
+            type="button"
+            className="wk-icon-btn"
+            title="Reset view to origin (0,0 at 100%)"
+            onClick={() => store.setUI({ camera2d: { x: 0, y: 0, zoom: 1 } })}
+          >
+            ↺
+          </button>
           <button type="button" className="wk-icon-btn" title="Zoom out" onClick={() => zoomByFactor(1 / 1.2)}>
             −
           </button>
           <span
             style={{ minWidth: 42, textAlign: "center", fontVariantNumeric: "tabular-nums", cursor: "pointer" }}
-            title="Reset to 100%"
-            onClick={() => zoomByFactor(1 / (store.getState().ui.camera2d.zoom || 1))}
+            title="Reset view to origin (0,0 at 100%)"
+            onClick={() => store.setUI({ camera2d: { x: 0, y: 0, zoom: 1 } })}
           >
             {Math.round(zoom * 100)}%
           </span>

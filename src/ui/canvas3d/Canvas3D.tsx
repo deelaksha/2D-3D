@@ -806,9 +806,25 @@ export default function Canvas3D(): JSX.Element {
 
 
 
-  const setCameraPreset = (preset: "iso" | "top" | "front" | "side" | "fit") => {
+  const setCameraPreset = (preset: "iso" | "top" | "front" | "side" | "fit" | "reset") => {
     const v = viewerRef.current;
     if (!v) return;
+
+    if (preset === "reset") {
+      v.targetGoal.set(0, 0, 0);
+      v.target.set(0, 0, 0);
+      v.sphericalGoal.radius = 600;
+      v.sphericalGoal.phi = Math.PI / 3;
+      v.sphericalGoal.theta = Math.PI / 4;
+      v.spherical.radius = 600;
+      v.spherical.phi = Math.PI / 3;
+      v.spherical.theta = Math.PI / 4;
+      v.applyCameraImmediately();
+      handleExplodeChange(0);
+      setAutoRotate(false);
+      showToast("Viewport reset to original view!");
+      return;
+    }
 
     if (preset === "fit") {
       if (v.group) {
@@ -1031,6 +1047,14 @@ export default function Canvas3D(): JSX.Element {
         <div className="wk-hud-glass" style={{ gap: 14 }}>
           {/* View Preset Buttons */}
           <div className="wk-3d-btn-group">
+            <button
+              type="button"
+              className="wk-3d-btn"
+              onClick={() => setCameraPreset("reset")}
+              title="Reset camera and scene to original view position & zoom"
+            >
+              ↺ RESET
+            </button>
             <button type="button" className="wk-3d-btn" onClick={() => setCameraPreset("iso")}>
               ISO
             </button>

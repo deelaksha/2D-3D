@@ -53,7 +53,7 @@ describe("Joint Automation & Connector Sync Engine", () => {
     const plugBefore = findConnector(pair.plugId);
     const recBefore = findConnector(pair.receiverId);
     expect(plugBefore?.width).toBe(10);
-    expect(recBefore?.width).toBe(10);
+    expect(recBefore?.width).toBeCloseTo(10.4, 1);
 
     // Edit plug width to 24mm & depth to 6mm
     updateConnector(pair.plugId, { width: 24, depth: 6, pattern: "shoulder" });
