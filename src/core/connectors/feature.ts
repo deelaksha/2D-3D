@@ -51,15 +51,24 @@ export function connectorFeature(c: Connector): { op: BooleanOp; shape: Shape } 
   const role = connectorRole(c);
   if (role === "neutral") return null;
 
-  const { w, h, round } = footprint(c);
   const pattern = c.pattern ?? "standard";
+  const round = pattern === "peg_hole" || ROUND_TYPES.includes(c.type);
+  const { w, h } = footprint(c);
 
   let kind: ShapeKind = round ? "circle" : c.type === "slot" ? "slot" : "rect";
   let radius: number | undefined = undefined;
 
-  // Custom Pattern & Custom Type Shape Mapping
+  // Pattern & Type Shape Mapping for 2D wooden joints
   if (pattern === "dovetail" || c.type === "custom") {
     kind = "trapezoid";
+  } else if (pattern === "shoulder") {
+    kind = "trapezoid";
+  } else if (pattern === "halflap") {
+    kind = "rect";
+  } else if (pattern === "finger" || pattern === "teeth") {
+    kind = "rect";
+  } else if (pattern === "peg_hole") {
+    kind = "circle";
   } else if (pattern === "puzzle") {
     kind = "capsule";
     radius = Math.min(w, h) / 2;
@@ -68,8 +77,6 @@ export function connectorFeature(c: Connector): { op: BooleanOp; shape: Shape } 
   } else if (pattern === "wave") {
     kind = "roundedRect";
     radius = Math.min(w, h) / 3;
-  } else if (pattern === "teeth") {
-    kind = "rect";
   }
 
   const isInsert = role === "insert";

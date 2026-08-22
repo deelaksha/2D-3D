@@ -35,11 +35,16 @@ import {
   addConnector,
   clearSelection,
   createPart,
+  createPortPair,
+  connectPortPair,
+  deleteConnector,
+  findConnector,
   select,
   selectConnector,
   selectOne,
   setActiveTool,
   setPartShape,
+  toggleJointRole,
   toggleSelect,
   updatePartTransform,
   updatePartsTransform,
@@ -139,6 +144,7 @@ interface DrawPreview {
 type DragState =
   | { mode: "pan"; startClientX: number; startClientY: number; startCamX: number; startCamY: number }
   | { mode: "draw"; start: Vec2 }
+  | { mode: "drawConnector"; start: Vec2; partId: string; type: ConnectorType }
   | { mode: "move"; start: Vec2; parts: { id: string; x: number; y: number }[] }
   | { mode: "resize"; id: string; handle: number; start: Bounds; shapeX: number; shapeY: number }
   | { mode: "rotate"; id: string; pivot: Vec2; local: Vec2; startAngle: number; startRotation: number }
@@ -172,6 +178,9 @@ function partFill(project: Project, part: Part): string {
 export default function Canvas2D(): JSX.Element {
   const project = useProject();
   const ui = useUI();
+  const activePart = ui.activePartId
+    ? project.parts.find((part) => part.id === ui.activePartId)
+    : undefined;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -429,24 +438,18 @@ export default function Canvas2D(): JSX.Element {
     if (tool?.kind === "connector" && tool.createsConnector) {
       const part = pickPart(world);
       if (part) {
-        const local = worldToPart(part, world);
-        const type = tool.createsConnector;
-        // addConnector now generates the connector's board geometry itself:
-        // a socket (cut) for receivers, a plug (protrusion) for inserts.
-        addConnector(part.id, type, local);
-        const role = defaultRole(type);
-        store.status(
-          role === "receiver"
-            ? `Cut a ${type} socket into ${part.name}`
-            : role === "insert"
-              ? `Added a ${type} plug to ${part.name}`
-              : `Added ${type} to ${part.name}`,
-          "ok",
-        );
+        const s = snapPoint(world);
+        dragRef.current = {
+          mode: "drawConnector",
+          start: s,
+          partId: part.id,
+          type: tool.createsConnector,
+        };
+        const isRound = tool.createsConnector === "hole" || tool.createsConnector === "peg" || tool.createsConnector === "dowel";
+        setPreview({ x: s.x, y: s.y, w: 0, h: 0, kind: isRound ? "circle" : "rect" });
       } else {
-        store.status("Click on a part to place a connector", "warning");
+        store.status("Click and drag on a part to draw a connector joint", "warning");
       }
-      dragRef.current = null;
       return;
     }
 
@@ -516,7 +519,7 @@ export default function Canvas2D(): JSX.Element {
       return;
     }
 
-    if (drag.mode === "draw") {
+    if (drag.mode === "draw" || drag.mode === "drawConnector") {
       const cur = snapPoint(world);
       setPreview((prev) =>
         prev
@@ -608,6 +611,10 @@ export default function Canvas2D(): JSX.Element {
       finishDraw();
       return;
     }
+    if (drag?.mode === "drawConnector") {
+      finishDrawConnector(drag);
+      return;
+    }
     if (drag?.mode === "marquee") {
       finishMarquee(drag);
       return;
@@ -616,6 +623,40 @@ export default function Canvas2D(): JSX.Element {
     if (drag?.mode === "move") store.endGesture("Move part");
     else if (drag?.mode === "resize") store.endGesture("Resize part");
     else if (drag?.mode === "rotate") store.endGesture("Rotate part");
+  };
+
+  const finishDrawConnector = (drag: any) => {
+    const p = preview;
+    setPreview(null);
+    if (!p) return;
+    const part = store.getState().project.parts.find((part) => part.id === drag.partId);
+    if (!part) return;
+
+    const rawW = Math.abs(p.w);
+    const rawH = Math.abs(p.h);
+    const isSingleClick = rawW < 3 && rawH < 3;
+
+    // Center point in world space
+    const minX = Math.min(drag.start.x, drag.start.x + p.w);
+    const minY = Math.min(drag.start.y, drag.start.y + p.h);
+    const centerWorld = isSingleClick
+      ? drag.start
+      : { x: minX + rawW / 2, y: minY + rawH / 2 };
+
+    const localPos = worldToPart(part, centerWorld);
+    const connW = isSingleClick ? 12 : Math.max(4, Math.round(rawW));
+    const connH = isSingleClick ? 4 : Math.max(4, Math.round(rawH));
+    const isRound = drag.type === "hole" || drag.type === "peg" || drag.type === "dowel";
+    const diameter = isRound ? (isSingleClick ? 6 : Math.round(Math.min(connW, connH))) : undefined;
+
+    const cId = addConnector(part.id, drag.type, localPos, {
+      width: connW,
+      height: connH,
+      diameter,
+    });
+
+    store.status(`Drawn ${drag.type} connector on ${part.name} (${connW}x${connH}mm)`, "ok");
+    selectConnector(cId);
   };
 
   /** Select every part whose bounding box intersects the marquee rectangle. */
@@ -800,8 +841,6 @@ export default function Canvas2D(): JSX.Element {
                   hovered={ui.hoverConnectorId === c.id}
                   selected={ui.selectedConnectorId === c.id}
                   showLabel={
-                    // Contextual by default (selected/hovered part); the
-                    // "show connector labels" toggle reveals ALL labels at once.
                     ui.showConnectorLabels ||
                     ui.selection.includes(part.id) ||
                     ui.hoverConnectorId === c.id ||
@@ -809,6 +848,15 @@ export default function Canvas2D(): JSX.Element {
                   }
                 />
               )),
+            )}
+
+            {/* On-Canvas Floating Joint Quick-Action Overlay Toolbar */}
+            {activePart && (
+              <SelectedJointToolbar
+                part={activePart}
+                connector={ui.selectedConnectorId ? findConnector(ui.selectedConnectorId) : undefined}
+                worldToScreen={worldToScreen}
+              />
             )}
 
             {/* live size readout while drawing (shows the current unit) */}
@@ -1088,6 +1136,113 @@ function SelectionBox(props: {
       />
     </g>
   );
+}
+
+function SelectedJointToolbar(props: {
+  part: Part;
+  connector?: Connector;
+  worldToScreen: (p: Vec2) => Vec2;
+}): JSX.Element | null {
+  const { part, connector, worldToScreen } = props;
+  if (!part) return null;
+
+  try {
+    const connPart = connector
+      ? store.getState().project.parts.find((p) => p.connectors.some((c) => c.id === connector.id)) ?? part
+      : part;
+
+    const partW = part.width ?? part.shape?.width ?? 100;
+    const wp = connector
+      ? connectorWorld(connPart, connector)
+      : { x: (part.transform?.x ?? 0) + partW / 2, y: part.transform?.y ?? 0 };
+
+    if (!wp || typeof wp.x !== "number" || typeof wp.y !== "number" || !isFinite(wp.x) || !isFinite(wp.y)) {
+      return null;
+    }
+
+    const targetPos = worldToScreen(wp);
+    if (!targetPos || typeof targetPos.x !== "number" || typeof targetPos.y !== "number" || !isFinite(targetPos.x) || !isFinite(targetPos.y)) {
+      return null;
+    }
+
+    return (
+      <g transform={`translate(${targetPos.x} ${targetPos.y - 42})`} style={{ pointerEvents: "auto" }}>
+        <rect
+          x={-115}
+          y={-14}
+          width={230}
+          height={28}
+          rx={14}
+          fill="#0f172a"
+          fillOpacity={0.95}
+          stroke="var(--wk-accent)"
+          strokeWidth={1.5}
+        />
+        {connector ? (
+          <>
+            <g
+              transform="translate(-105, -5)"
+              style={{ cursor: "pointer" }}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleJointRole(connector.id);
+              }}
+            >
+              <rect x={0} y={-4} width={70} height={18} rx={9} fill={connectorRole(connector) === "insert" ? "#22c55e" : "#3b82f6"} />
+              <text x={35} y={8} fontSize={9} fontWeight="bold" fill="#fff" textAnchor="middle">
+                {connectorRole(connector) === "insert" ? "+ Plug (Fill)" : "- Socket (Hole)"}
+              </text>
+            </g>
+
+            <g
+              transform="translate(-30, -5)"
+              style={{ cursor: "pointer" }}
+              onClick={(e) => {
+                e.stopPropagation();
+                connectPortPair(connector.id);
+              }}
+            >
+              <rect x={0} y={-4} width={75} height={18} rx={9} fill="#ef8c3b" />
+              <text x={37.5} y={8} fontSize={9} fontWeight="bold" fill="#fff" textAnchor="middle">
+                ⚡ Auto-Sync
+              </text>
+            </g>
+
+            <g
+              transform="translate(50, -5)"
+              style={{ cursor: "pointer" }}
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteConnector(connector.id);
+              }}
+            >
+              <rect x={0} y={-4} width={55} height={18} rx={9} fill="#ef4444" />
+              <text x={27.5} y={8} fontSize={9} fontWeight="bold" fill="#fff" textAnchor="middle">
+                ✕ Remove
+              </text>
+            </g>
+          </>
+        ) : (
+          <g
+            transform="translate(-100, -5)"
+            style={{ cursor: "pointer" }}
+            onClick={(e) => {
+              e.stopPropagation();
+              createPortPair(part.id, undefined, "tab");
+            }}
+          >
+            <rect x={0} y={-4} width={200} height={18} rx={9} fill="#ef8c3b" />
+            <text x={100} y={8} fontSize={9} fontWeight="bold" fill="#fff" textAnchor="middle">
+              ＋ Add Joint & Auto-Sync Receiver
+            </text>
+          </g>
+        )}
+      </g>
+    );
+  } catch (err) {
+    console.error("SelectedJointToolbar error:", err);
+    return null;
+  }
 }
 
 function ConnectorGlyph(props: {

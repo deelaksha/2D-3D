@@ -24,6 +24,7 @@ import PartsPanel from "./ui/panels/PartsPanel";
 import Inspector from "./ui/panels/Inspector";
 import CanvasBoard from "./ui/board/CanvasBoard";
 import CommandPalette from "./ui/palette/CommandPalette";
+import JointsPanel from "./ui/panels/JointsPanel";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -60,17 +61,31 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     if (this.state.hasError) {
       return (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: "var(--wk-bg, #0f1117)", color: "var(--wk-ink, #f1f5f9)", fontFamily: "sans-serif", padding: 20, textAlign: "center" }}>
-          <h2 style={{ fontSize: 22, color: "#ef4444" }}>Something went wrong</h2>
-          <p style={{ maxWidth: 500, opacity: 0.8, fontSize: 14 }}>
-            An unexpected error occurred. Click below to reset to a clean project.
+          <h2 style={{ fontSize: 22, color: "#ef4444", marginBottom: 8 }}>Something went wrong</h2>
+          <p style={{ maxWidth: 500, opacity: 0.8, fontSize: 14, marginBottom: 12 }}>
+            An unexpected UI error occurred. You can attempt to recover your workspace session or start fresh.
           </p>
-          <button
-            type="button"
-            onClick={this.handleReset}
-            style={{ padding: "10px 20px", background: "#ef8c3b", color: "#ffffff", border: "none", borderRadius: 8, fontWeight: 700, cursor: "pointer", marginTop: 12 }}
-          >
-            Reset & Start Fresh
-          </button>
+          {this.state.error?.message && (
+            <div style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", padding: 10, borderRadius: 6, fontSize: 11, color: "#f87171", maxWidth: 550, marginBottom: 16, textAlign: "left", fontFamily: "monospace" }}>
+              {this.state.error.message}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => this.setState({ hasError: false, error: null })}
+              style={{ padding: "10px 18px", background: "#3b82f6", color: "#ffffff", border: "none", borderRadius: 8, fontWeight: 700, cursor: "pointer" }}
+            >
+              🔄 Recover Session
+            </button>
+            <button
+              type="button"
+              onClick={this.handleReset}
+              style={{ padding: "10px 18px", background: "#ef8c3b", color: "#ffffff", border: "none", borderRadius: 8, fontWeight: 700, cursor: "pointer" }}
+            >
+              Reset & Start Fresh
+            </button>
+          </div>
         </div>
       );
     }
@@ -78,7 +93,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 }
 
-/** The right-hand column: Parts/Layers tabs + inspector below. */
+/** The right-hand column: Parts/Layers/Joints tabs + inspector below. */
 function RightColumn() {
   const ui = useUI();
   return (
@@ -96,9 +111,21 @@ function RightColumn() {
         >
           Layers
         </button>
+        <button
+          className={"wk-tab" + (ui.panelTab === "joints" ? " wk-tab--active" : "")}
+          onClick={() => store.setUI({ panelTab: "joints" })}
+        >
+          ⚡ Joints
+        </button>
       </div>
       <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-        {ui.panelTab === "layers" ? <LayersPanel /> : <PartsPanel />}
+        {ui.panelTab === "layers" ? (
+          <LayersPanel />
+        ) : ui.panelTab === "joints" ? (
+          <JointsPanel />
+        ) : (
+          <PartsPanel />
+        )}
       </div>
       <div style={{ borderTop: "1px solid var(--wk-border)", maxHeight: "48%", overflow: "auto" }}>
         <Inspector />

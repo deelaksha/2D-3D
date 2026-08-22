@@ -18,6 +18,7 @@ import type {
   Connection,
   ConnectionStatus,
   Connector,
+  ConnectorPattern,
   ConnectorRole,
   ConnectorType,
   Constraint,
@@ -357,6 +358,47 @@ export function addConnector(
   return c.id;
 }
 
+/** Helper to sync physical dimensions to linked partner connectors */
+function syncPartnerConnectors(d: import("../model/types").Project, sourceConnector: Connector, patch: Partial<Connector>): void {
+  const syncKeys: (keyof Connector)[] = ["width", "height", "depth", "diameter", "pattern", "customTypeName", "tolerance"];
+  const hasDimSync = syncKeys.some((k) => k in patch);
+  if (!hasDimSync) return;
+
+  const targetIds = new Set<string>();
+  if (sourceConnector.referencedConnectorId) targetIds.add(sourceConnector.referencedConnectorId);
+  for (const id of sourceConnector.compatibleWith ?? []) {
+    if (id !== sourceConnector.id) targetIds.add(id);
+  }
+
+  // Also check if any other connector references sourceConnector.id or has it in compatibleWith
+  for (const p of d.parts) {
+    for (const c of p.connectors) {
+      if (c.id === sourceConnector.id) continue;
+      if (c.referencedConnectorId === sourceConnector.id || (c.compatibleWith ?? []).includes(sourceConnector.id)) {
+        targetIds.add(c.id);
+      }
+    }
+  }
+
+  if (targetIds.size === 0) return;
+
+  const payload: Partial<Connector> = {};
+  for (const k of syncKeys) {
+    if (patch[k] !== undefined) {
+      (payload as any)[k] = patch[k];
+    }
+  }
+
+  for (const p of d.parts) {
+    for (const c of p.connectors) {
+      if (targetIds.has(c.id)) {
+        Object.assign(c, payload);
+        syncConnectorFeature(p, c);
+      }
+    }
+  }
+}
+
 export function updateConnector(connectorId: string, patch: Partial<Connector>, label = "Edit connector"): void {
   store.commit(label, (d) => {
     for (const p of d.parts) {
@@ -364,6 +406,7 @@ export function updateConnector(connectorId: string, patch: Partial<Connector>, 
       if (c) {
         Object.assign(c, patch);
         syncConnectorFeature(p, c); // keep the plug/socket in sync with edits
+        syncPartnerConnectors(d, c, patch); // sync linked receiver dimensions
         return;
       }
     }
@@ -379,7 +422,7 @@ export function setConnectorRole(connectorId: string, role: ConnectorRole): void
   updateConnector(connectorId, { role }, `Set connector to ${role}`);
 }
 
-/** Change custom joint shape pattern (standard, dovetail, puzzle, tslot, teeth, wave). */
+/** Change custom joint shape pattern (standard, shoulder, halflap, finger, dovetail, peg_hole, puzzle, tslot, teeth, wave). */
 export function setConnectorPattern(connectorId: string, pattern: import("../model/types").ConnectorPattern): void {
   updateConnector(connectorId, { pattern }, `Set connector pattern to ${pattern}`);
 }
@@ -445,13 +488,181 @@ export function createComplementConnector(connectorId: string): string | null {
     depth: src.depth,
     diameter: src.diameter,
     tolerance: src.tolerance,
+    pattern: src.pattern,
+    customTypeName: src.customTypeName,
+    referencedConnectorId: src.id,
     compatibleWith: [src.id],
   });
   // cross-link the original so both know they mate
-  updateConnector(src.id, { compatibleWith: [...(src.compatibleWith ?? []), newId] }, "Link connectors");
+  updateConnector(src.id, { compatibleWith: [...(src.compatibleWith ?? []), newId], referencedConnectorId: newId }, "Link connectors");
   store.endGesture(`Add matching ${to}`);
   selectConnector(newId);
   return newId;
+}
+
+/**
+ * Automatically create a matching Receiver socket on targetPartId referencing sourceConnectorId,
+ * with exact matching dimensions, width, height, depth, pattern, and complementary role/type.
+ */
+export function createReceiverForConnector(sourceConnectorId: string, targetPartId?: string): string | null {
+  const found = locateConnector(sourceConnectorId);
+  if (!found) return null;
+  const { part: sourcePart, connector: src } = found;
+
+  const project = store.getState().project;
+  const targetPart =
+    (targetPartId ? project.parts.find((p) => p.id === targetPartId) : null) ||
+    project.parts.find((p) => p.id !== sourcePart.id) ||
+    sourcePart;
+
+  const recType = complementType(src.type);
+  const recPos = { x: Math.round(targetPart.shape.width / 2), y: Math.round(targetPart.shape.height / 2) };
+
+  store.beginGesture();
+
+  const receiverId = addConnector(targetPart.id, recType, recPos, {
+    name: `${src.name} Receiver`,
+    role: "receiver",
+    width: src.width,
+    height: src.height,
+    depth: targetPart.thickness || src.depth,
+    diameter: src.diameter,
+    pattern: src.pattern,
+    customTypeName: src.customTypeName,
+    tolerance: src.tolerance,
+    orientation: src.orientation,
+    referencedConnectorId: src.id,
+    compatibleWith: [src.id],
+  });
+
+  // Cross-link source connector to receiver
+  const updatedCompat = Array.from(new Set([...(src.compatibleWith ?? []), receiverId]));
+  updateConnector(src.id, { compatibleWith: updatedCompat, referencedConnectorId: receiverId }, "Link receiver to connector");
+
+  store.endGesture(`Created Receiver for ${src.name}`);
+  selectConnector(receiverId);
+  return receiverId;
+}
+
+/**
+ * Explicitly bind a Receiver to a Source Connector ID, copying and syncing width, length/depth, pattern, and footprint.
+ */
+export function syncReceiverToConnector(receiverId: string, sourceConnectorId: string): void {
+  const src = findConnector(sourceConnectorId);
+  if (!src) return;
+
+  updateConnector(
+    receiverId,
+    {
+      referencedConnectorId: sourceConnectorId,
+      width: src.width,
+      height: src.height,
+      depth: src.depth,
+      diameter: src.diameter,
+      pattern: src.pattern,
+      customTypeName: src.customTypeName,
+      tolerance: src.tolerance,
+      compatibleWith: Array.from(new Set([...(src.compatibleWith ?? []), sourceConnectorId])),
+    },
+    "Sync Receiver to Connector"
+  );
+}
+
+export interface EdgePlacement {
+  edge?: "top" | "bottom" | "left" | "right" | "center" | "custom";
+  offsetMm?: number;
+  customPos?: Vec2;
+  orientation?: number;
+}
+
+export function calcEdgePosition(part: Part, placement?: EdgePlacement): { pos: Vec2; orientation: number } {
+  const edge = placement?.edge ?? "bottom";
+  const offset = placement?.offsetMm ?? 0;
+  const w = part.shape?.width || part.width || 100;
+  const h = part.shape?.height || part.height || 100;
+
+  if (placement?.customPos) {
+    return { pos: placement.customPos, orientation: placement.orientation ?? 0 };
+  }
+
+  switch (edge) {
+    case "top":
+      return { pos: { x: Math.round(w / 2 + offset), y: 0 }, orientation: 270 };
+    case "left":
+      return { pos: { x: 0, y: Math.round(h / 2 + offset) }, orientation: 180 };
+    case "right":
+      return { pos: { x: w, y: Math.round(h / 2 + offset) }, orientation: 0 };
+    case "center":
+      return { pos: { x: Math.round(w / 2 + offset), y: Math.round(h / 2) }, orientation: 0 };
+    case "bottom":
+    default:
+      return { pos: { x: Math.round(w / 2 + offset), y: h }, orientation: 90 };
+  }
+}
+
+/** 1-Click Toggle between Plug (+) Fill protrusion and Socket (-) Hole cutout */
+export function toggleJointRole(connectorId: string): void {
+  const c = findConnector(connectorId);
+  if (!c) return;
+  const currentRole = connectorRole(c);
+  const newRole = currentRole === "receiver" ? "insert" : "receiver";
+  setConnectorRole(connectorId, newRole);
+}
+
+/** 1-Click Toggle for modifier shape: subtract (Hole cutout) <-> union (Fill protrusion) */
+export function toggleModifierOp(partId: string, modifierId: string): void {
+  store.commit("Toggle Cutout / Plug", (d) => {
+    const p = d.parts.find((x) => x.id === partId);
+    const m = p?.modifiers.find((x) => x.id === modifierId);
+    if (m) {
+      m.op = m.op === "subtract" ? "union" : "subtract";
+    }
+  });
+}
+
+/**
+ * Convert any drawn shape modifier (or shape outline) on a part into a physical Connector joint,
+ * and optionally auto-generate its matching receiver socket on targetPartId.
+ */
+export function convertShapeToConnector(
+  partId: string,
+  modifierId: string,
+  targetPartId?: string,
+  connectorType: ConnectorType = "custom",
+  pattern: ConnectorPattern = "custom"
+): string | null {
+  const project = store.getState().project;
+  const part = project.parts.find((p) => p.id === partId);
+  if (!part) return null;
+
+  const mod = part.modifiers.find((m) => m.id === modifierId);
+  if (!mod) return null;
+
+  const shape = mod.shape;
+  const cx = shape.x + (shape.width || 10) / 2;
+  const cy = shape.y + (shape.height || 10) / 2;
+
+  store.beginGesture();
+
+  const connId = addConnector(part.id, connectorType, { x: cx, y: cy }, {
+    name: mod.name || `Drawn ${shape.kind} Joint`,
+    width: shape.width || 10,
+    height: shape.height || 10,
+    diameter: shape.radius ? shape.radius * 2 : undefined,
+    pattern: pattern,
+    customTypeName: shape.kind,
+  });
+
+  // Remove standalone raw modifier since connector feature handles geometry
+  deleteModifier(part.id, modifierId);
+
+  if (targetPartId) {
+    createReceiverForConnector(connId, targetPartId);
+  }
+
+  store.endGesture(`Converted ${shape.kind} into Custom Joint`);
+  selectConnector(connId);
+  return connId;
 }
 
 /** Auto-generate a clean, intuitive port label (e.g. "Port A1", "Port A2", "Port B1"). */
@@ -477,7 +688,9 @@ export function createPortPair(
   sourcePartId: string,
   targetPartId?: string,
   type: ConnectorType = "tab",
-  overrides?: Partial<Connector>
+  overrides?: Partial<Connector>,
+  sourcePlacement?: EdgePlacement,
+  targetPlacement?: EdgePlacement
 ): { plugId: string; receiverId: string } | null {
   const project = store.getState().project;
   const sourcePart = project.parts.find((p) => p.id === sourcePartId);
@@ -491,37 +704,41 @@ export function createPortPair(
   const label = generateNextPortLabel(project);
   const recType = complementType(type);
 
+  const srcEdge = calcEdgePosition(sourcePart, sourcePlacement);
+  const tgtEdge = calcEdgePosition(targetPart, targetPlacement ?? { edge: "center" });
+
   store.beginGesture();
 
   // 1. Create Plug (Connector)
-  const plugPos = { x: Math.round(sourcePart.shape.width / 2), y: 0 };
-  const plugId = addConnector(sourcePart.id, type, plugPos, {
+  const plugId = addConnector(sourcePart.id, type, srcEdge.pos, {
     name: `${label} (Plug)`,
     role: "insert",
     width: 12,
     height: 4,
     depth: sourcePart.thickness,
+    orientation: srcEdge.orientation,
     tolerance: 0.2,
     ...overrides,
   });
 
   // 2. Create Receiver (Socket) with EXACT matching dimensions
-  const recPos = { x: Math.round(targetPart.shape.width / 2), y: 0 };
-  const receiverId = addConnector(targetPart.id, recType, recPos, {
+  const receiverId = addConnector(targetPart.id, recType, tgtEdge.pos, {
     name: `${label} (Receiver)`,
     role: "receiver",
     width: overrides?.width ?? 12,
     height: overrides?.height ?? 4,
     depth: targetPart.thickness,
+    orientation: tgtEdge.orientation,
     tolerance: overrides?.tolerance ?? 0.2,
     diameter: overrides?.diameter,
     pattern: overrides?.pattern,
     customTypeName: overrides?.customTypeName,
+    referencedConnectorId: plugId,
     compatibleWith: [plugId],
   });
 
   // Cross-link Plug to Receiver
-  updateConnector(plugId, { compatibleWith: [receiverId] }, "Link port pair");
+  updateConnector(plugId, { compatibleWith: [receiverId], referencedConnectorId: receiverId }, "Link port pair");
 
   store.endGesture(`Created ${label} Plug & Receiver Pair`);
   selectConnector(plugId);

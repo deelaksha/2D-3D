@@ -186,11 +186,16 @@ export type ConnectorRole = "insert" | "receiver" | "neutral" | "custom";
 /** Custom physical design patterns for connectors. */
 export type ConnectorPattern =
   | "standard"
+  | "shoulder"
+  | "halflap"
+  | "finger"
   | "dovetail"
+  | "peg_hole"
   | "puzzle"
   | "tslot"
   | "teeth"
-  | "wave";
+  | "wave"
+  | "custom";
 
 /**
  * A connector lives on a part, at a local position, facing a direction.
@@ -205,10 +210,12 @@ export interface Connector {
   role?: ConnectorRole;
   /** Opposite / inverted / negative mode: flips plug ↔ socket geometry and mating logic. */
   inverted?: boolean;
-  /** Custom joint shape pattern (dovetail, puzzle key, t-slot, finger-teeth, wave). */
+  /** Custom joint shape pattern (dovetail, shoulder, halflap, finger, peg_hole, puzzle key, t-slot, teeth, wave). */
   pattern?: ConnectorPattern;
   /** Custom connector/receiver type name when type/role is custom. */
   customTypeName?: string;
+  /** Direct referenced connector ID for automatic dimension sync & mating. */
+  referencedConnectorId?: ID;
   /** Local position on the part (mm). */
   position: Vec2;
   /** Facing direction (degrees CW, 0 = +X). */

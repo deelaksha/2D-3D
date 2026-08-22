@@ -28,6 +28,8 @@ import {
   findConnector,
   MIN_DIM_MM,
   createComplementConnector,
+  createReceiverForConnector,
+  syncReceiverToConnector,
   invertConnector,
   renameConnector,
   renamePart,
@@ -277,12 +279,43 @@ function ConnectorEditor(props: {
         </label>
       )}
 
+      {/* Connector ID Reference & Receiver Auto-Creation */}
+      <div className="wk-section-title">Connector ID & Receiver Sync</div>
+      <div className="wk-field" style={{ fontSize: 11, color: "var(--wk-ink-soft)", marginBottom: 4 }}>
+        <span>ID: <code>{c.id}</code></span>
+      </div>
+      <TextField
+        label="Referenced Connector ID"
+        value={c.referencedConnectorId ?? ""}
+        placeholder="e.g. con_12345"
+        onCommit={(refId) => {
+          updateConnector(c.id, { referencedConnectorId: refId.trim() || undefined });
+          if (refId.trim()) syncReceiverToConnector(c.id, refId.trim());
+        }}
+      />
+      <div className="wk-field" style={{ marginTop: 4 }}>
+        <button
+          type="button"
+          className="wk-btn wk-btn--primary"
+          style={{ width: "100%", justifyContent: "center", fontWeight: 600, fontSize: 11 }}
+          onClick={() => createReceiverForConnector(c.id)}
+          title="Automatically generate matching Receiver socket on target part with matching dimensions & structure"
+        >
+          ⚡ Auto-Create Receiver on Target Part
+        </button>
+      </div>
+      {c.referencedConnectorId && (
+        <div className="wk-chip" style={{ background: "rgba(34, 197, 94, 0.15)", color: "#16a34a", marginTop: 4, display: "inline-block" }}>
+          ✓ Synced with {c.referencedConnectorId}
+        </div>
+      )}
+
       {/* Auto-Connect & Snap Action */}
       <div className="wk-field" style={{ marginTop: 8 }}>
         <span className="wk-field__label">Auto-Connect & Snap</span>
         <button
           type="button"
-          className="wk-btn wk-btn--primary"
+          className="wk-btn wk-btn--ghost"
           style={{ width: "100%", justifyContent: "center", fontWeight: 700 }}
           onClick={() => connectPortPair(c.id)}
           title="Automatically snap and join target part to matching Receiver/Plug in 3D"
@@ -319,18 +352,23 @@ function ConnectorEditor(props: {
       </div>
 
       <label className="wk-field">
-        <span className="wk-field__label">Pattern</span>
+        <span className="wk-field__label">Joint Pattern</span>
         <select
           className="wk-select"
           value={c.pattern ?? "standard"}
           onChange={(e) => setConnectorPattern(c.id, e.target.value as ConnectorPattern)}
         >
-          <option value="standard">Standard (Straight)</option>
-          <option value="dovetail">Dovetail Joint</option>
+          <option value="standard">1. Slot Joint (Simple Slot)</option>
+          <option value="shoulder">2. Tab & Slot (With Shoulder)</option>
+          <option value="halflap">3. Half-Lap Joint (Flush Fit)</option>
+          <option value="finger">4. Interlocking Finger Joint</option>
+          <option value="dovetail">5. Dovetail Joint</option>
+          <option value="peg_hole">6. Peg & Hole Joint</option>
           <option value="puzzle">Puzzle Key</option>
           <option value="tslot">T-Slot Key</option>
           <option value="teeth">Finger Teeth</option>
           <option value="wave">Wave Joint</option>
+          <option value="custom">Custom Design</option>
         </select>
       </label>
 
@@ -592,43 +630,7 @@ function PartEditor(props: { part: Part; project: Project; unit: Unit }): JSX.El
         onCommit={(deg) => updatePartTransform(part.id, { rotation: deg })}
       />
 
-      <div className="wk-section-title">
-        Create Port Pair (Plug & Receiver)
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
-        <button
-          type="button"
-          className="wk-btn wk-btn--primary"
-          style={{ fontSize: 11, justifyContent: "center" }}
-          onClick={() => createPortPair(part.id, undefined, "tab")}
-        >
-          + Add Tab & Slot Pair (12mm)
-        </button>
-        <button
-          type="button"
-          className="wk-btn wk-btn--ghost"
-          style={{ fontSize: 11, justifyContent: "center" }}
-          onClick={() => createPortPair(part.id, undefined, "peg", { diameter: 6 })}
-        >
-          + Add Peg & Hole Pair (6mm)
-        </button>
-        <button
-          type="button"
-          className="wk-btn wk-btn--ghost"
-          style={{ fontSize: 11, justifyContent: "center" }}
-          onClick={() => createPortPair(part.id, undefined, "dowel", { diameter: 8 })}
-        >
-          + Add Dowel & Socket Pair (8mm)
-        </button>
-        <button
-          type="button"
-          className="wk-btn wk-btn--ghost"
-          style={{ fontSize: 11, justifyContent: "center" }}
-          onClick={() => createPortPair(part.id, undefined, "custom", { customTypeName: "CustomJoint" })}
-        >
-          + Add Custom Joint Pair
-        </button>
-      </div>
+
 
       <div className="wk-section-title">
         Connectors ({part.connectors.length})
