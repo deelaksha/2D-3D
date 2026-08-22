@@ -167,7 +167,8 @@ function loopsPath(loops: Vec2[][], close = true): string {
   return loops.map((l) => loopPath(l, close)).join(" ");
 }
 
-function partFill(project: Project, part: Part): string {
+function partFill(project: Project, part: Part, isSelected = false): string {
+  if (isSelected) return "#3b82f6";
   return part.color ?? materialOf(project, part.materialId)?.color ?? "#cccccc";
 }
 
@@ -776,7 +777,12 @@ export default function Canvas2D(): JSX.Element {
             <Grid cam={cam} zoom={zoom} size={size} grid={ui.grid} />
 
             {sortedParts.map((part) => (
-              <PartShape key={part.id} part={part} fill={partFill(project, part)} />
+              <PartShape
+                key={part.id}
+                part={part}
+                fill={partFill(project, part, ui.selection.includes(part.id))}
+                isSelected={ui.selection.includes(part.id)}
+              />
             ))}
 
             {/* live draw preview — shows the ACTUAL shape being drawn */}
@@ -982,8 +988,8 @@ function Grid(props: {
   );
 }
 
-function PartShape(props: { part: Part; fill: string }): JSX.Element {
-  const { part, fill } = props;
+function PartShape(props: { part: Part; fill: string; isSelected?: boolean }): JSX.Element {
+  const { part, fill, isSelected = false } = props;
   const loops = partOutlineWorld(part);
   const closed = isClosedShape(part.shape.kind);
 
@@ -996,8 +1002,8 @@ function PartShape(props: { part: Part; fill: string }): JSX.Element {
             key={i}
             d={loopPath(loop, false)}
             fill="none"
-            stroke={fill}
-            strokeWidth={2}
+            stroke={isSelected ? "#2563eb" : fill}
+            strokeWidth={isSelected ? 3 : 2}
             strokeLinecap="round"
             strokeLinejoin="round"
             vectorEffect="non-scaling-stroke"
@@ -1011,6 +1017,9 @@ function PartShape(props: { part: Part; fill: string }): JSX.Element {
   const subtractLoops = mods.filter((m) => m.op === "subtract").flatMap((m) => m.loops);
   const unionLoops = mods.filter((m) => m.op === "union").flatMap((m) => m.loops);
 
+  const strokeColor = isSelected ? "#2563eb" : "var(--wk-border-strong)";
+  const strokeWidth = isSelected ? 2.5 : 1.25;
+
   return (
     <g pointerEvents="none">
       {/* insert plugs (union) painted as added material, UNDER the base so the
@@ -1020,8 +1029,8 @@ function PartShape(props: { part: Part; fill: string }): JSX.Element {
           d={loopsPath(unionLoops)}
           fill={fill}
           fillRule="evenodd"
-          stroke="var(--wk-border-strong)"
-          strokeWidth={1.25}
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
           strokeLinejoin="round"
           vectorEffect="non-scaling-stroke"
         />
@@ -1031,8 +1040,8 @@ function PartShape(props: { part: Part; fill: string }): JSX.Element {
         d={loopsPath(loops)}
         fill={fill}
         fillRule="evenodd"
-        stroke="var(--wk-border-strong)"
-        strokeWidth={1.25}
+        stroke={strokeColor}
+        strokeWidth={strokeWidth}
         strokeLinejoin="round"
         vectorEffect="non-scaling-stroke"
       />

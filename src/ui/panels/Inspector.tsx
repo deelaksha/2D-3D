@@ -48,6 +48,8 @@ import {
   updateConnector,
   updatePart,
   updatePartTransform,
+  updatePlacement,
+  placePart,
 } from "@/core/store/actions";
 import { connectorRole } from "@/core/connectors/feature";
 import { complementType } from "@/core/connectors/compat";
@@ -616,7 +618,7 @@ function PartEditor(props: { part: Part; project: Project; unit: Unit }): JSX.El
         />
       </label>
 
-      <div className="wk-section-title">Transform & Rotation</div>
+      <div className="wk-section-title">2D Transform & Rotation</div>
       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
         <button
           type="button"
@@ -637,12 +639,189 @@ function PartEditor(props: { part: Part; project: Project; unit: Unit }): JSX.El
       </div>
 
       <NumField
-        label="Rotation°"
+        label="2D Angle°"
         valueMm={part.transform.rotation}
         unit={unit}
         raw
         onCommit={(deg) => updatePartTransform(part.id, { rotation: deg })}
       />
+
+      {/* ---- 3D Axis Transformation (Move / Translate X, Y, Z) ---- */}
+      <div className="wk-section-title">3D Axis Transformation (Move / Translate)</div>
+      {(() => {
+        const placement = project.assembly.placements.find((p) => p.partId === part.id) ?? {
+          partId: part.id,
+          position: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          placed: true,
+        };
+
+        return (
+          <>
+            {/* Axis X (Red) */}
+            <div className="wk-axis-card wk-axis-card--x">
+              <div className="wk-axis-header">
+                <span className="wk-axis-badge wk-axis-badge--x">X</span>
+                <span className="wk-axis-label">X Axis (Translate)</span>
+              </div>
+              <div className="wk-axis-controls">
+                <NumField
+                  label="Position X"
+                  valueMm={placement.position.x}
+                  unit={unit}
+                  onCommit={(mm) =>
+                    updatePlacement(part.id, {
+                      position: { ...placement.position, x: mm },
+                    })
+                  }
+                />
+                <input
+                  type="range"
+                  min="-500"
+                  max="500"
+                  step="1"
+                  value={placement.position.x}
+                  onChange={(e) =>
+                    updatePlacement(part.id, {
+                      position: { ...placement.position, x: Number(e.target.value) },
+                    })
+                  }
+                  className="wk-axis-range wk-axis-range--x"
+                />
+              </div>
+            </div>
+
+            {/* Axis Y (Green) */}
+            <div className="wk-axis-card wk-axis-card--y">
+              <div className="wk-axis-header">
+                <span className="wk-axis-badge wk-axis-badge--y">Y</span>
+                <span className="wk-axis-label">Y Axis (Translate)</span>
+              </div>
+              <div className="wk-axis-controls">
+                <NumField
+                  label="Position Y"
+                  valueMm={placement.position.y}
+                  unit={unit}
+                  onCommit={(mm) =>
+                    updatePlacement(part.id, {
+                      position: { ...placement.position, y: mm },
+                    })
+                  }
+                />
+                <input
+                  type="range"
+                  min="-500"
+                  max="500"
+                  step="1"
+                  value={placement.position.y}
+                  onChange={(e) =>
+                    updatePlacement(part.id, {
+                      position: { ...placement.position, y: Number(e.target.value) },
+                    })
+                  }
+                  className="wk-axis-range wk-axis-range--y"
+                />
+              </div>
+            </div>
+
+            {/* Axis Z (Blue) */}
+            <div className="wk-axis-card wk-axis-card--z">
+              <div className="wk-axis-header">
+                <span className="wk-axis-badge wk-axis-badge--z">Z</span>
+                <span className="wk-axis-label">Z Axis (Height Elevation)</span>
+              </div>
+              <div className="wk-axis-controls">
+                <NumField
+                  label="Position Z"
+                  valueMm={placement.position.z}
+                  unit={unit}
+                  onCommit={(mm) =>
+                    updatePlacement(part.id, {
+                      position: { ...placement.position, z: mm },
+                    })
+                  }
+                />
+                <input
+                  type="range"
+                  min="-500"
+                  max="500"
+                  step="1"
+                  value={placement.position.z}
+                  onChange={(e) =>
+                    updatePlacement(part.id, {
+                      position: { ...placement.position, z: Number(e.target.value) },
+                    })
+                  }
+                  className="wk-axis-range wk-axis-range--z"
+                />
+              </div>
+            </div>
+
+            {/* 3D Rotation Controls */}
+            <div className="wk-section-title">3D Rotation (X, Y, Z Degrees)</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+              <NumField
+                label="Rot X°"
+                valueMm={placement.rotation.x}
+                unit={unit}
+                raw
+                onCommit={(deg) =>
+                  updatePlacement(part.id, {
+                    rotation: { ...placement.rotation, x: deg },
+                  })
+                }
+              />
+              <NumField
+                label="Rot Y°"
+                valueMm={placement.rotation.y}
+                unit={unit}
+                raw
+                onCommit={(deg) =>
+                  updatePlacement(part.id, {
+                    rotation: { ...placement.rotation, y: deg },
+                  })
+                }
+              />
+              <NumField
+                label="Rot Z°"
+                valueMm={placement.rotation.z}
+                unit={unit}
+                raw
+                onCommit={(deg) =>
+                  updatePlacement(part.id, {
+                    rotation: { ...placement.rotation, z: deg },
+                  })
+                }
+              />
+            </div>
+
+            <button
+              type="button"
+              className="wk-btn wk-btn--ghost"
+              style={{
+                width: "100%",
+                marginTop: 8,
+                marginBottom: 12,
+                fontSize: 11,
+                justifyContent: "center",
+                color: "var(--wk-accent-ink)",
+              }}
+              onClick={() =>
+                updatePlacement(
+                  part.id,
+                  {
+                    position: { x: 0, y: 0, z: 0 },
+                    rotation: { x: 0, y: 0, z: 0 },
+                  },
+                  "Reset 3D Transform",
+                )
+              }
+            >
+              ↺ Reset 3D Transform
+            </button>
+          </>
+        );
+      })()}
 
 
 

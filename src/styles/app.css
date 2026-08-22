@@ -460,6 +460,61 @@ button { font-family: inherit; }
   cursor: pointer;
 }
 
+/* 3D Axis Transformation Styling */
+.wk-axis-card {
+  border: 1px solid var(--wk-border);
+  border-radius: var(--wk-r1);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--wk-surface-2);
+}
+.wk-axis-card--x {
+  border-left: 4px solid #ef4444;
+}
+.wk-axis-card--y {
+  border-left: 4px solid #18a558;
+}
+.wk-axis-card--z {
+  border-left: 4px solid #3b82f6;
+}
+.wk-axis-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.wk-axis-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 11px;
+  color: #fff;
+}
+.wk-axis-badge--x { background: #ef4444; }
+.wk-axis-badge--y { background: #18a558; }
+.wk-axis-badge--z { background: #3b82f6; }
+.wk-axis-label {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--wk-ink-soft);
+}
+.wk-axis-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wk-axis-range {
+  width: 100%;
+  cursor: pointer;
+}
+.wk-axis-range--x { accent-color: #ef4444; }
+.wk-axis-range--y { accent-color: #18a558; }
+.wk-axis-range--z { accent-color: #3b82f6; }
+
 .wk-3d-inspect-tooltip {
   position: absolute;
   z-index: 30;

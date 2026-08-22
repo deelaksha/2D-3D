@@ -15,15 +15,17 @@
  */
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { store, useProject } from "@/core/store/store";
+import { store, useProject, useUI } from "@/core/store/store";
 import {
   addConnection,
   clear3DScene,
+  clearSelection,
   createPart,
   placeAllParts,
   placePart,
   removeConnection,
   rotateConnector,
+  selectOne,
   setPartMaterial,
   unplacePart,
 } from "@/core/store/actions";
@@ -218,6 +220,7 @@ function PartThumbnail({ part, materialColor }: { part: any; materialColor: stri
 export default function Canvas3D(): JSX.Element {
 
   const project = useProject();
+  const ui = useUI();
   const mountRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
 
@@ -395,6 +398,7 @@ export default function Canvas3D(): JSX.Element {
             break;
           }
           if (data && data.partId) {
+            selectOne(data.partId);
             draggingPartId = data.partId;
             const projectState = store.getState().project;
             const placement = projectState.assembly.placements.find((pl) => pl.partId === data.partId);
@@ -504,7 +508,7 @@ export default function Canvas3D(): JSX.Element {
       }
 
       const moveDist = Math.hypot(e.clientX - downX, e.clientY - downY);
-      if (moveDist < 5 && !wasPartDragging) {
+      if (moveDist < 5) {
         handleCanvasClick(e.clientX, e.clientY);
       }
     };
@@ -594,7 +598,7 @@ export default function Canvas3D(): JSX.Element {
     }
   }, [envTheme, showGrid]);
 
-  /* ---- (Re)build meshes when project, renderMode, or placements change ---- */
+  /* ---- (Re)build meshes when project, renderMode, selection, or placements change ---- */
   useEffect(() => {
     const v = viewerRef.current;
     if (!v) return;
@@ -604,7 +608,7 @@ export default function Canvas3D(): JSX.Element {
       v.group = null;
     }
 
-    const g = buildProjectObject(project, renderMode);
+    const g = buildProjectObject(project, renderMode, ui.selection);
     const box = new THREE.Box3().setFromObject(g);
     if (!box.isEmpty()) {
       v.scene.add(g);
@@ -613,14 +617,11 @@ export default function Canvas3D(): JSX.Element {
       if (explodeFactor > 0) {
         applyExplodeFactor(g, explodeFactor);
       }
-
-      const sphere = box.getBoundingSphere(new THREE.Sphere());
-      v.fit(sphere.radius);
     } else {
       v.scene.add(g);
       v.group = g;
     }
-  }, [project, renderMode]);
+  }, [project, renderMode, ui.selection]);
 
 
   /* ---- Toggle 3D Connector Markers Visibility ---- */
@@ -702,7 +703,13 @@ export default function Canvas3D(): JSX.Element {
         }
         return;
       }
+      if (data && data.partId) {
+        selectOne(data.partId);
+        showToast(`Selected ${data.partName}`);
+        return;
+      }
     }
+    clearSelection();
   };
 
 

@@ -97,47 +97,88 @@ function toShape(outer: Vec2[], holes: Vec2[][]): THREE.Shape {
 }
 
 /** Create material based on selected render mode */
-export function createPartMaterial(colorHex: string, renderMode: RenderMode = "textured"): THREE.Material {
-  const baseColor = new THREE.Color(colorHex);
+export function createPartMaterial(
+  colorHex: string,
+  renderMode: RenderMode = "textured",
+  isSelected = false
+): THREE.Material {
+  const baseColor = new THREE.Color(isSelected ? "#2563eb" : colorHex);
 
   switch (renderMode) {
     case "wireframe":
       return new THREE.MeshStandardMaterial({
         color: baseColor,
         wireframe: true,
-        roughness: 0.5,
-        metalness: 0.1,
+        roughness: 0.3,
+        metalness: 0.2,
+        emissive: isSelected ? new THREE.Color("#1d4ed8") : new THREE.Color("#000000"),
       });
 
     case "xray":
       return new THREE.MeshPhysicalMaterial({
         color: baseColor,
         transparent: true,
-        opacity: 0.38,
+        opacity: isSelected ? 0.75 : 0.38,
         roughness: 0.15,
-        transmission: 0.6,
+        transmission: isSelected ? 0.3 : 0.6,
         thickness: 2,
         clearcoat: 0.5,
+        emissive: isSelected ? new THREE.Color("#1e40af") : new THREE.Color("#000000"),
       });
 
     case "solid":
       return new THREE.MeshStandardMaterial({
         color: baseColor,
-        roughness: 0.45,
-        metalness: 0.08,
+        roughness: 0.35,
+        metalness: isSelected ? 0.2 : 0.08,
+        emissive: isSelected ? new THREE.Color("#1e3a8a") : new THREE.Color("#000000"),
       });
 
     case "textured":
     default: {
-      const map = getProceduralWoodTexture(colorHex);
+      const map = getProceduralWoodTexture(isSelected ? "#2563eb" : colorHex);
       return new THREE.MeshStandardMaterial({
         color: baseColor,
         map,
-        roughness: 0.55,
-        metalness: 0.04,
+        roughness: 0.45,
+        metalness: isSelected ? 0.15 : 0.04,
+        emissive: isSelected ? new THREE.Color("#1e3a8a") : new THREE.Color("#000000"),
       });
     }
   }
+}
+
+/** Build 3D Transform Axis Gizmo (X Red, Y Green, Z Blue arrows) */
+export function buildTransformGizmo3D(partId: string, maxDim: number): THREE.Group {
+  const gizmo = new THREE.Group();
+  gizmo.name = "transform_gizmo";
+
+  const length = Math.max(50, maxDim * 1.2);
+  const headLength = Math.max(10, length * 0.2);
+  const headWidth = Math.max(5, headLength * 0.45);
+
+  // X Axis (Red)
+  const dirX = new THREE.Vector3(1, 0, 0);
+  const arrowX = new THREE.ArrowHelper(dirX, new THREE.Vector3(0, 0, 0), length, 0xef4444, headLength, headWidth);
+  arrowX.userData = { isGizmoAxis: true, axis: "x", partId };
+  arrowX.traverse((c) => { c.userData = arrowX.userData; });
+  gizmo.add(arrowX);
+
+  // Y Axis (Green)
+  const dirY = new THREE.Vector3(0, 1, 0);
+  const arrowY = new THREE.ArrowHelper(dirY, new THREE.Vector3(0, 0, 0), length, 0x18a558, headLength, headWidth);
+  arrowY.userData = { isGizmoAxis: true, axis: "y", partId };
+  arrowY.traverse((c) => { c.userData = arrowY.userData; });
+  gizmo.add(arrowY);
+
+  // Z Axis (Blue - Vertical Height)
+  const dirZ = new THREE.Vector3(0, 0, 1);
+  const arrowZ = new THREE.ArrowHelper(dirZ, new THREE.Vector3(0, 0, 0), length, 0x3b82f6, headLength, headWidth);
+  arrowZ.userData = { isGizmoAxis: true, axis: "z", partId };
+  arrowZ.traverse((c) => { c.userData = arrowZ.userData; });
+  gizmo.add(arrowZ);
+
+  return gizmo;
 }
 
 /** Build interactive 3D Connector sphere markers on a part group */
@@ -188,7 +229,8 @@ export function buildConnectorNodes3D(part: Part, thickness: number, group: THRE
 export function buildPartObject(
   project: Project,
   part: Part,
-  renderMode: RenderMode = "textured"
+  renderMode: RenderMode = "textured",
+  isSelected = false
 ): THREE.Group | null {
   const loops = shapeOutline(part.shape);
   const outer = loops[0];
@@ -205,7 +247,7 @@ export function buildPartObject(
   const thickness = Math.max(0.6, part.thickness || 4);
   const matObj = materialOf(project, part.materialId);
   const colorHex = matObj?.color ?? "#c8a25a";
-  const mat = createPartMaterial(colorHex, renderMode);
+  const mat = createPartMaterial(colorHex, renderMode, isSelected);
 
   const group = new THREE.Group();
   group.name = part.name;
@@ -249,13 +291,13 @@ export function buildPartObject(
     group.add(plugMesh);
   }
 
-  // Crisp darker edge outline for visual definition
+  // Crisp edge outline for visual definition (blue highlight when selected)
   if (renderMode !== "wireframe") {
     const edges = new THREE.EdgesGeometry(baseGeo, 30);
     const lineMat = new THREE.LineBasicMaterial({
-      color: 0x111827,
+      color: isSelected ? 0x60a5fa : 0x111827,
       transparent: true,
-      opacity: 0.28,
+      opacity: isSelected ? 0.95 : 0.28,
     });
     group.add(new THREE.LineSegments(edges, lineMat));
   }
@@ -263,13 +305,21 @@ export function buildPartObject(
   // Add 3D Connector Nodes
   buildConnectorNodes3D(part, thickness, group);
 
+  // Attach 3D Axis Transform Gizmo when selected
+  if (isSelected) {
+    const maxDim = Math.max(part.width || 40, part.height || 40, thickness);
+    const gizmo = buildTransformGizmo3D(part.id, maxDim);
+    group.add(gizmo);
+  }
+
   return group;
 }
 
 /** Whole project → a group of extruded parts (placed or connected in 3D). */
 export function buildProjectObject(
   project: Project,
-  renderMode: RenderMode = "textured"
+  renderMode: RenderMode = "textured",
+  selection: string[] = []
 ): THREE.Group {
   const root = new THREE.Group();
   const partGroupMap = new Map<string, THREE.Group>();
@@ -282,7 +332,8 @@ export function buildProjectObject(
     const isPlaced = placement ? placement.placed : false;
 
     if (isPlaced) {
-      const o = buildPartObject(project, part, renderMode);
+      const isSelected = selection.includes(part.id);
+      const o = buildPartObject(project, part, renderMode, isSelected);
       if (o) {
         if (placement) {
           o.position.set(placement.position.x, placement.position.y, placement.position.z);
