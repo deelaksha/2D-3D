@@ -157,19 +157,6 @@ export default function LayersPanel() {
                   </button>
                 </span>
               </div>
-              {part.connectors.map((c) => (
-                <div
-                  key={c.id}
-                  className={`wk-row wk-row--child${ui.selectedConnectorId === c.id ? " wk-row--active" : ""}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    selectConnector(c.id);
-                  }}
-                >
-                  <span className="wk-row__icon">{"◆"}</span>
-                  <span className="wk-row__name">{c.name || c.type}</span>
-                </div>
-              ))}
             </div>
           );
         })}

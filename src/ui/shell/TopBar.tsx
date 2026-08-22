@@ -98,14 +98,44 @@ function Dropdown(props: { label: string; open: boolean; onToggle: () => void; o
 }
 
 /** Top bar: brand, File/Edit menus, category launchers, undo/redo, command palette. */
-export default function TopBar() {
+export default function TopBar(props: {
+  onToggleLeftPanel?: () => void;
+  isLeftPanelOpen?: boolean;
+  onToggleRightPanel?: () => void;
+  isRightPanelOpen?: boolean;
+}) {
+  const {
+    onToggleLeftPanel,
+    isLeftPanelOpen = false,
+    onToggleRightPanel,
+    isRightPanelOpen = false,
+  } = props;
   // Re-render on both UI and project changes so undo/redo/selection-dependent
   // menu states (enabled/disabled, labels) always reflect the live store.
   useUI();
   useProject();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(() => document.fullscreenElement !== null);
   const close = () => setOpenMenu(null);
   const toggle = (m: string) => setOpenMenu((cur) => (cur === m ? null : m));
+
+  useEffect(() => {
+    const syncFullscreenState = () => setIsFullscreen(document.fullscreenElement !== null);
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreenState);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {
+      store.status("Fullscreen is unavailable in this browser", "warning");
+    }
+  };
 
   const hasSelection = store.getState().ui.selection.length > 0;
   const mode = store.getState().ui.mode;
@@ -211,6 +241,40 @@ export default function TopBar() {
           Board
         </button>
       </div>
+
+      <button
+        type="button"
+        className={`wk-icon-btn${isFullscreen ? " wk-icon-btn--active" : ""}`}
+        onClick={toggleFullscreen}
+        title={isFullscreen ? "Exit fullscreen (Esc)" : "Enter fullscreen"}
+        aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+      >
+        {isFullscreen ? "⛶" : "⛶"}
+      </button>
+
+      {onToggleLeftPanel && (
+        <button
+          type="button"
+          className={`wk-icon-btn${isLeftPanelOpen ? " wk-icon-btn--active" : ""}`}
+          onClick={onToggleLeftPanel}
+          title={isLeftPanelOpen ? "Close tool panel" : "Open tool panel"}
+          aria-label={isLeftPanelOpen ? "Close tool panel" : "Open tool panel"}
+        >
+          {isLeftPanelOpen ? "←" : "→"}
+        </button>
+      )}
+
+      {onToggleRightPanel && (
+        <button
+          type="button"
+          className={`wk-icon-btn${isRightPanelOpen ? " wk-icon-btn--active" : ""}`}
+          onClick={onToggleRightPanel}
+          title={isRightPanelOpen ? "Close side panel" : "Open side panel"}
+          aria-label={isRightPanelOpen ? "Close side panel" : "Open side panel"}
+        >
+          {isRightPanelOpen ? "→" : "←"}
+        </button>
+      )}
 
       {mode !== "3d" && (
         <button

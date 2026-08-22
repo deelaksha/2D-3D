@@ -9,7 +9,6 @@ export default function StatusBar() {
   const ui = useUI();
 
   const partCount = project.parts.length;
-  const connectorCount = project.parts.reduce((n, p) => n + p.connectors.length, 0);
   const zoomPct = Math.round(ui.camera2d.zoom * 100);
 
   function handleUnitChange(e: ChangeEvent<HTMLSelectElement>) {
@@ -26,7 +25,6 @@ export default function StatusBar() {
       <span className="wk-status__message">{ui.statusMessage}</span>
       <span className="wk-status__sep" />
       <span className="wk-status__item">{partCount} parts</span>
-      <span className="wk-status__item">{connectorCount} connectors</span>
       <span className="wk-status__item">Zoom {zoomPct}%</span>
       <span className="wk-status__item">
         <select

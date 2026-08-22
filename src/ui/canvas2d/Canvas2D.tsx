@@ -830,7 +830,6 @@ export default function Canvas2D(): JSX.Element {
                 />
               ))}
 
-            {/* connectors */}
             {sortedParts.flatMap((part) =>
               part.connectors.map((c) => (
                 <ConnectorGlyph
@@ -840,23 +839,9 @@ export default function Canvas2D(): JSX.Element {
                   worldToScreen={worldToScreen}
                   hovered={ui.hoverConnectorId === c.id}
                   selected={ui.selectedConnectorId === c.id}
-                  showLabel={
-                    ui.showConnectorLabels ||
-                    ui.selection.includes(part.id) ||
-                    ui.hoverConnectorId === c.id ||
-                    ui.selectedConnectorId === c.id
-                  }
+                  showLabel={ui.showConnectorLabels || ui.selection.includes(part.id) || ui.hoverConnectorId === c.id || ui.selectedConnectorId === c.id}
                 />
               )),
-            )}
-
-            {/* On-Canvas Floating Joint Quick-Action Overlay Toolbar */}
-            {activePart && (
-              <SelectedJointToolbar
-                part={activePart}
-                connector={ui.selectedConnectorId ? findConnector(ui.selectedConnectorId) : undefined}
-                worldToScreen={worldToScreen}
-              />
             )}
 
             {/* live size readout while drawing (shows the current unit) */}

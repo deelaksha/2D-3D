@@ -17,6 +17,8 @@ export function registerAllTools(): void {
   registry.registerAll([
     ...geometryTools,
     ...booleanTools,
+    ...connectorTools,
+    ...joineryTools,
     ...transformTools,
     ...measureTools,
     ...layoutTools,

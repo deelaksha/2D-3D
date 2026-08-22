@@ -1069,31 +1069,11 @@ export default function Canvas3D(): JSX.Element {
 
           <div style={{ width: 1, height: 20, background: "var(--wk-border)" }} />
 
-          {/* Connections Drawer Toggle & Auto-Connect Button */}
-          <button
-            type="button"
-            className={`wk-3d-btn ${showConnectors ? "wk-3d-btn--active" : ""}`}
-            onClick={() => setShowConnectors(!showConnectors)}
-            title="Toggle 3D interactive connector dots visibility"
-          >
-            {showConnectors ? "👁 Dots On" : "🙈 Dots Off"}
-          </button>
-
-          <button
-            type="button"
-            className={`wk-3d-btn ${showConnectionsPanel ? "wk-3d-btn--active" : ""}`}
-            onClick={() => setShowConnectionsPanel(!showConnectionsPanel)}
-          >
-            ⚡ Connections ({project.assembly.connections.length})
-          </button>
-
-
-
         </div>
       </div>
 
       {/* ---- Selected Source Connector Banner ---- */}
-      {selectedSourceConn && (
+      {selectedSourceConn && Boolean(false) && (
         <div
           className="wk-toast"
           style={{
@@ -1132,7 +1112,7 @@ export default function Canvas3D(): JSX.Element {
       {toastMessage && <div className="wk-toast wk-toast--ok">{toastMessage}</div>}
 
       {/* ---- Connections Manager Overlay Drawer ---- */}
-      {showConnectionsPanel && (
+      {false && showConnectionsPanel && (
         <div
           className="wk-hud-glass"
           style={{

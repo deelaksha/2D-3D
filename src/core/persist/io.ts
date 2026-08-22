@@ -14,6 +14,7 @@ import { normalizeConnectorFeatures } from "@/core/store/actions";
 
 const STORAGE_KEY = "woodkit.project";
 
+
 /** Whether `window`/DOM APIs are available (guards against SSR/non-browser). */
 function hasDom(): boolean {
   return typeof window !== "undefined" && typeof document !== "undefined";
@@ -204,11 +205,7 @@ export function bootstrapProject(): void {
     store.loadProject(makeProject(), "New project");
   }
 
-  try {
-    normalizeConnectorFeatures();
-  } catch (err) {
-    console.warn("normalizeConnectorFeatures warning:", err);
-  }
+  normalizeConnectorFeatures();
 
   if (typeof window !== "undefined") {
     store.subscribe(scheduleAutosave);

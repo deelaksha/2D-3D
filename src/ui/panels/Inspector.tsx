@@ -633,26 +633,6 @@ function PartEditor(props: { part: Part; project: Project; unit: Unit }): JSX.El
 
 
       <div className="wk-section-title">
-        Connectors ({part.connectors.length})
-      </div>
-      {part.connectors.length === 0 ? (
-        <div className="wk-empty">No connectors yet.</div>
-      ) : (
-        part.connectors.map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            className="wk-row"
-            onClick={() => selectConnector(c.id)}
-          >
-            <span className="wk-row__icon">◈</span>
-            <span className="wk-row__name">{c.name}</span>
-            <span className="wk-chip">{c.type}</span>
-          </button>
-        ))
-      )}
-
-      <div className="wk-section-title">
         Constraints ({part.constraints.length})
       </div>
       {part.constraints.length === 0 ? (
@@ -680,26 +660,15 @@ export default function Inspector(): JSX.Element {
   const ui = useUI();
   const unit = project.meta.displayUnit;
 
-  // Keep a stable ref-free lookup: derive the selected connector + its part.
-  const connector = ui.selectedConnectorId
-    ? findConnector(ui.selectedConnectorId)
-    : undefined;
-  const connectorPart = connector
-    ? project.parts.find((p) => p.id === connector.partId)
-    : undefined;
   const activePart = ui.activePartId
     ? project.parts.find((p) => p.id === ui.activePartId)
     : undefined;
 
   let body: JSX.Element;
-  if (connector) {
-    body = (
-      <ConnectorEditor connector={connector} part={connectorPart} unit={unit} />
-    );
-  } else if (activePart) {
+  if (activePart) {
     body = <PartEditor part={activePart} project={project} unit={unit} />;
   } else {
-    body = <div className="wk-empty">Select a part or connector</div>;
+    body = <div className="wk-empty">Select a part</div>;
   }
 
   return (

@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, type ReactNode } from "react";
+import { Component, lazy, Suspense, useEffect, useState, type PointerEvent, type ReactNode } from "react";
 import { makeProject } from "./core/model/defaults";
 import { store, useUI } from "./core/store/store";
 import {
@@ -93,11 +93,19 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 }
 
-/** The right-hand column: Parts/Layers/Joints tabs + inspector below. */
-function RightColumn() {
+/** The right-hand column: parts, layers, and joint authoring + inspector. */
+function RightColumn(props: { onResizeStart: (event: PointerEvent<HTMLDivElement>) => void }) {
+  const { onResizeStart } = props;
   const ui = useUI();
   return (
     <div className="wk-panel" style={{ display: "flex", flexDirection: "column" }}>
+      <div
+        className="wk-panel-resize-grip"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize side panel"
+        onPointerDown={onResizeStart}
+      />
       <div className="wk-tabs">
         <button
           className={"wk-tab" + (ui.panelTab === "parts" ? " wk-tab--active" : "")}
@@ -115,17 +123,11 @@ function RightColumn() {
           className={"wk-tab" + (ui.panelTab === "joints" ? " wk-tab--active" : "")}
           onClick={() => store.setUI({ panelTab: "joints" })}
         >
-          ⚡ Joints
+          Joints
         </button>
       </div>
       <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-        {ui.panelTab === "layers" ? (
-          <LayersPanel />
-        ) : ui.panelTab === "joints" ? (
-          <JointsPanel />
-        ) : (
-          <PartsPanel />
-        )}
+        {ui.panelTab === "layers" ? <LayersPanel /> : ui.panelTab === "joints" ? <JointsPanel /> : <PartsPanel />}
       </div>
       <div style={{ borderTop: "1px solid var(--wk-border)", maxHeight: "48%", overflow: "auto" }}>
         <Inspector />
@@ -136,6 +138,46 @@ function RightColumn() {
 
 function AppContent() {
   const ui = useUI();
+  const [leftPanelOpen, setLeftPanelOpen] = useState(() => window.innerWidth >= 900);
+  const [leftPanelWidth, setLeftPanelWidth] = useState(236);
+  const [rightPanelOpen, setRightPanelOpen] = useState(() => window.innerWidth >= 900);
+  const [rightPanelWidth, setRightPanelWidth] = useState(304);
+
+  const startRightPanelResize = (event: PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const pointerId = event.pointerId;
+    event.currentTarget.setPointerCapture(pointerId);
+    const onMove = (moveEvent: globalThis.PointerEvent) => {
+      setRightPanelWidth(Math.max(260, Math.min(640, window.innerWidth - moveEvent.clientX)));
+    };
+    const onEnd = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+  };
+  const toggleRightPanel = () => setRightPanelOpen((open) => !open);
+  const toggleLeftPanel = () => setLeftPanelOpen((open) => !open);
+
+  const startLeftPanelResize = (event: PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const pointerId = event.pointerId;
+    event.currentTarget.setPointerCapture(pointerId);
+    const onMove = (moveEvent: globalThis.PointerEvent) => {
+      setLeftPanelWidth(Math.max(180, Math.min(420, moveEvent.clientX)));
+    };
+    const onEnd = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+  };
 
   // Global keyboard: palette, undo/redo, delete, and single-key tool shortcuts.
   useEffect(() => {
@@ -262,16 +304,33 @@ function AppContent() {
   }
 
   return (
-    <div className="wk-app">
-      <TopBar />
-      <div className="wk-left">
+    <div
+      className="wk-app"
+      style={{ gridTemplateColumns: `${leftPanelOpen ? leftPanelWidth : 0}px minmax(0, 1fr) ${rightPanelOpen ? rightPanelWidth : 0}px` }}
+    >
+      <TopBar
+        onToggleLeftPanel={toggleLeftPanel}
+        isLeftPanelOpen={leftPanelOpen}
+        onToggleRightPanel={toggleRightPanel}
+        isRightPanelOpen={rightPanelOpen}
+      />
+      <div className={`wk-left${leftPanelOpen ? "" : " wk-left--collapsed"}`}>
         <LeftToolbox />
+        <div
+          className="wk-panel-resize-grip wk-panel-resize-grip--right"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize tool panel"
+          onPointerDown={startLeftPanelResize}
+        />
       </div>
       <div className="wk-canvas">
         <Canvas2D />
       </div>
-      <div className="wk-right">
-        <RightColumn />
+      <div
+        className={`wk-right${rightPanelOpen ? "" : " wk-right--collapsed"}`}
+      >
+        <RightColumn onResizeStart={startRightPanelResize} />
       </div>
       <StatusBar />
       {ui.commandPaletteOpen && <CommandPalette />}

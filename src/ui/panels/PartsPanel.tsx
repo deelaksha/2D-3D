@@ -1,6 +1,6 @@
 /**
  * PartsPanel — flat list of every part in the project ("House" root), each row
- * selectable. Shows a connector-count badge and the part's material chip.
+ * selectable. Shows the part's material chip.
  */
 import { useProject, useUI } from "@/core/store/store";
 import { createPart, selectOne } from "@/core/store/actions";
@@ -50,7 +50,7 @@ export default function PartsPanel() {
               key={part.id}
               className={`wk-row${active ? " wk-row--active" : ""}`}
               onClick={() => selectOne(part.id)}
-              title={`${part.name} — ${part.connectors.length} connector${part.connectors.length === 1 ? "" : "s"}`}
+              title={part.name}
             >
               <span className="wk-row__icon" aria-hidden="true">
                 ▤
@@ -62,9 +62,6 @@ export default function PartsPanel() {
                 title={material.name}
               >
                 {material.name}
-              </span>
-              <span className="wk-badge" title={`${part.connectors.length} connectors`}>
-                <span aria-hidden="true">◆</span> {part.connectors.length}
               </span>
             </div>
           );
