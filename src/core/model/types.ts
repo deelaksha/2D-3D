@@ -214,6 +214,9 @@ export interface Connector {
   pattern?: ConnectorPattern;
   /** Custom connector/receiver type name when type/role is custom. */
   customTypeName?: string;
+  /** Original 2D shape used for a hand-drawn custom joint. When present, this
+   * is the authoritative plug/cutout outline rather than a preset profile. */
+  profileShape?: Shape;
   /** Direct referenced connector ID for automatic dimension sync & mating. */
   referencedConnectorId?: ID;
   /** Local position on the part (mm). */

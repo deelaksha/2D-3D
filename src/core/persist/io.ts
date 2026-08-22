@@ -13,6 +13,18 @@ import { store } from "@/core/store/store";
 import { normalizeConnectorFeatures } from "@/core/store/actions";
 
 const STORAGE_KEY = "woodkit.project";
+const FILE_DB = "woodkit-file-access";
+const FILE_STORE = "handles";
+const FILE_HANDLE_KEY = "active-project";
+type ProjectFileHandle = {
+  name: string;
+  getFile(): Promise<File>;
+  createWritable(): Promise<{ write(data: string): Promise<void>; close(): Promise<void> }>;
+  queryPermission?(options: { mode: "read" | "readwrite" }): Promise<PermissionState>;
+  requestPermission?(options: { mode: "read" | "readwrite" }): Promise<PermissionState>;
+};
+let activeFileHandle: ProjectFileHandle | null = null;
+let fileWriteInFlight = false;
 
 
 /** Whether `window`/DOM APIs are available (guards against SSR/non-browser). */
@@ -64,7 +76,9 @@ function maxIdOrdinal(project: Project): number {
 
 /** Stringify the current project (pretty-printed, mm units, as stored). */
 export function exportProjectJSON(): string {
-  return JSON.stringify(store.getState().project, null, 2);
+  const project = structuredClone(store.getState().project);
+  project.meta.updatedAt = new Date().toISOString();
+  return JSON.stringify(project, null, 2);
 }
 
 /** Trigger a browser download of the current project as a .json file. */
@@ -145,6 +159,129 @@ export function openImportDialog(): void {
   input.click();
 }
 
+function openFileDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(FILE_DB, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(FILE_STORE);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveFileHandle(handle: ProjectFileHandle | null): Promise<void> {
+  try {
+    const db = await openFileDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(FILE_STORE, "readwrite");
+      tx.objectStore(FILE_STORE).put(handle, FILE_HANDLE_KEY);
+      tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch { /* IndexedDB is optional; the current session can still autosave. */ }
+}
+
+async function loadFileHandle(): Promise<ProjectFileHandle | null> {
+  try {
+    const db = await openFileDatabase();
+    const handle = await new Promise<ProjectFileHandle | null>((resolve, reject) => {
+      const request = db.transaction(FILE_STORE, "readonly").objectStore(FILE_STORE).get(FILE_HANDLE_KEY);
+      request.onsuccess = () => resolve((request.result as ProjectFileHandle | undefined) ?? null);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    return handle;
+  } catch { return null; }
+}
+
+async function hasReadWritePermission(handle: ProjectFileHandle, prompt: boolean): Promise<boolean> {
+  if (!handle.queryPermission || !handle.requestPermission) return true;
+  const options = { mode: "readwrite" as const };
+  if (await handle.queryPermission(options) === "granted") return true;
+  return prompt && (await handle.requestPermission(options) === "granted");
+}
+
+async function writeActiveProjectFile(): Promise<void> {
+  if (!activeFileHandle || fileWriteInFlight || !(await hasReadWritePermission(activeFileHandle, false))) return;
+  fileWriteInFlight = true;
+  try {
+    const writable = await activeFileHandle.createWritable();
+    await writable.write(exportProjectJSON());
+    await writable.close();
+  } catch (error) {
+    console.warn("WoodKit file autosave failed", error);
+    store.status("Project file could not be saved; browser permission may have changed", "warning");
+  } finally { fileWriteInFlight = false; }
+}
+
+function suggestedFileName(): string {
+  const name = store.getState().project.meta.name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-") || "project";
+  return `${name}.woodkit.json`;
+}
+
+/** Ask the user for browser file access and bind autosave to the selected file. */
+export async function enableProjectFileAutosave(): Promise<void> {
+  const picker = (window as Window & { showSaveFilePicker?: (options: unknown) => Promise<ProjectFileHandle> }).showSaveFilePicker;
+  if (!picker) { store.status("File autosave needs a Chromium browser. Local autosave is still active.", "warning"); return; }
+  if (!window.confirm("Allow WoodKit to write this project file automatically after each edit? You can revoke this browser permission at any time.")) return;
+  try {
+    const handle = await picker({ suggestedName: suggestedFileName(), types: [{ description: "WoodKit project", accept: { "application/json": [".woodkit.json", ".json"] } }] });
+    if (!(await hasReadWritePermission(handle, true))) { store.status("File write permission was not granted", "warning"); return; }
+    activeFileHandle = handle;
+    await saveFileHandle(handle);
+    await writeActiveProjectFile();
+    store.status(`Autosaving to ${handle.name}`, "ok");
+  } catch (error) {
+    if ((error as DOMException)?.name !== "AbortError") store.status("Could not enable project-file autosave", "error");
+  }
+}
+
+/** Begin a new document and, when supported, let the user choose its folder
+ * before any work is created. A file picker can only be opened from a click,
+ * so this is intentionally called by File → New project. */
+export async function createNewProjectWithSaveLocation(): Promise<void> {
+  const picker = (window as Window & { showSaveFilePicker?: (options: unknown) => Promise<ProjectFileHandle> }).showSaveFilePicker;
+  if (!picker) {
+    activeFileHandle = null;
+    await saveFileHandle(null);
+    store.loadProject(makeProject(), "New project");
+    return;
+  }
+  if (!window.confirm("Choose a folder and project file now? WoodKit will autosave every edit to that file.")) {
+    activeFileHandle = null;
+    await saveFileHandle(null);
+    store.loadProject(makeProject(), "New project (browser autosave)");
+    return;
+  }
+  try {
+    const handle = await picker({ suggestedName: "untitled-kit.woodkit.json", types: [{ description: "WoodKit project", accept: { "application/json": [".woodkit.json", ".json"] } }] });
+    if (!(await hasReadWritePermission(handle, true))) { store.status("File write permission was not granted", "warning"); return; }
+    store.loadProject(makeProject(), "New project");
+    activeFileHandle = handle;
+    await saveFileHandle(handle);
+    await writeActiveProjectFile();
+    store.status(`New project created in ${handle.name}; autosave is enabled`, "ok");
+  } catch (error) {
+    if ((error as DOMException)?.name !== "AbortError") store.status("Could not create the project file", "error");
+  }
+}
+
+/** Open a project file with explicit read/write permission, then keep it autosaved. */
+export async function openProjectFile(): Promise<void> {
+  const picker = (window as Window & { showOpenFilePicker?: (options: unknown) => Promise<ProjectFileHandle[]> }).showOpenFilePicker;
+  if (!picker) { openImportDialog(); return; }
+  try {
+    const [handle] = await picker({ multiple: false, types: [{ description: "WoodKit project", accept: { "application/json": [".woodkit.json", ".json"] } }] });
+    if (!handle || !(await hasReadWritePermission(handle, true))) { store.status("Read/write permission was not granted", "warning"); return; }
+    const file = await handle.getFile();
+    if (!importProjectFromText(await file.text())) return;
+    activeFileHandle = handle;
+    await saveFileHandle(handle);
+    store.status(`Opened ${handle.name}; autosave is enabled`, "ok");
+  } catch (error) {
+    if ((error as DOMException)?.name !== "AbortError") store.status("Could not open project file", "error");
+  }
+}
+
 /** Persist the current project to localStorage (best-effort, non-fatal). */
 export function saveToLocalStorage(): void {
   if (typeof localStorage === "undefined") return;
@@ -181,6 +318,7 @@ function scheduleAutosave(): void {
   window.setTimeout(() => {
     autosavePending = false;
     saveToLocalStorage();
+    void writeActiveProjectFile();
   }, 400);
 }
 
@@ -209,5 +347,18 @@ export function bootstrapProject(): void {
 
   if (typeof window !== "undefined") {
     store.subscribe(scheduleAutosave);
+    // Restore the explicit project file when permission persists. No permission
+    // prompt appears at startup; the user retains control over that decision.
+    void (async () => {
+      const handle = await loadFileHandle();
+      if (!handle || !(await hasReadWritePermission(handle, false))) return;
+      try {
+        const file = await handle.getFile();
+        if (importProjectFromText(await file.text())) {
+          activeFileHandle = handle;
+          store.status(`Opened ${handle.name}; autosave is enabled`, "ok");
+        }
+      } catch { store.status("Saved project file could not be reopened", "warning"); }
+    })();
   }
 }

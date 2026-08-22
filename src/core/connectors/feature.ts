@@ -42,6 +42,22 @@ function footprint(c: Connector): { w: number; h: number; round: boolean } {
   return { w: Math.max(2, c.width || 10), h: Math.max(2, c.height || 6), round: false };
 }
 
+/** Closed outlines for the profiles exposed by the visual Custom profile picker.
+ * Keeping them as ordinary polygon Shapes means the same geometry is used by
+ * canvas rendering, hit-testing, exports, and the 3D converter. */
+function customProfileNodes(pattern: string, x: number, y: number, w: number, h: number) {
+  const p = (px: number, py: number) => ({ x: x + w * px, y: y + h * py });
+  switch (pattern) {
+    case "finger":
+    case "teeth": return [p(0, 0), p(1, 0), p(1, .28), p(.82, .28), p(.82, .5), p(1, .5), p(1, .72), p(.82, .72), p(.82, 1), p(0, 1), p(0, .72), p(.18, .72), p(.18, .5), p(0, .5), p(0, .28), p(.18, .28)];
+    case "halflap": return [p(0, 0), p(1, 0), p(1, .5), p(.5, .5), p(.5, 1), p(0, 1)];
+    case "shoulder": return [p(0, .24), p(.2, .24), p(.2, 0), p(.8, 0), p(.8, .24), p(1, .24), p(1, .76), p(.8, .76), p(.8, 1), p(.2, 1), p(.2, .76), p(0, .76)];
+    case "puzzle": return [p(0, .18), p(.28, .18), p(.28, 0), p(.5, 0), p(.5, .18), p(1, .18), p(1, .82), p(.5, .82), p(.5, 1), p(.28, 1), p(.28, .82), p(0, .82)];
+    case "tslot": return [p(0, 0), p(1, 0), p(1, .35), p(.65, .35), p(.65, 1), p(.35, 1), p(.35, .35), p(0, .35)];
+    default: return null;
+  }
+}
+
 /**
  * The board-geometry a connector contributes, or null for neutral connectors.
  * `op` is "subtract" for a receiver socket, "union" for an insert plug.
@@ -50,6 +66,13 @@ function footprint(c: Connector): { w: number; h: number; round: boolean } {
 export function connectorFeature(c: Connector): { op: BooleanOp; shape: Shape } | null {
   const role = connectorRole(c);
   if (role === "neutral") return null;
+
+  // A custom joint drawn with the 2D tools retains its exact outline. This is
+  // intentionally checked first: a star, polygon, or freehand path must not
+  // be reduced to a generic custom trapezoid when it becomes a connector.
+  if (c.profileShape) {
+    return { op: role === "insert" ? "union" : "subtract", shape: structuredClone(c.profileShape) };
+  }
 
   const pattern = c.pattern ?? "standard";
   const round = pattern === "peg_hole" || ROUND_TYPES.includes(c.type);
@@ -91,14 +114,16 @@ export function connectorFeature(c: Connector): { op: BooleanOp; shape: Shape } 
     cy += Math.sin(rad) * reach;
   }
 
-  const shape = makeShape(kind, {
+  const base = {
     x: cx - w / 2,
     y: cy - h / 2,
     width: w,
     height: h,
     rotation: round ? 0 : c.orientation,
     radius,
-  });
+  };
+  const nodes = customProfileNodes(pattern, base.x, base.y, w, h);
+  const shape = nodes ? makeShape("polygon", { ...base, nodes }) : makeShape(kind, base);
 
   const op: BooleanOp = isInsert ? "union" : "subtract";
 

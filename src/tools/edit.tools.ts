@@ -4,12 +4,12 @@
  */
 import { store } from "../core/store/store";
 import {
-  addGroup,
+  groupParts,
   deleteParts,
   duplicatePart,
   select,
   selectOne,
-  setPartGroup,
+  ungroupParts,
 } from "../core/store/actions";
 import type { ToolContext, ToolDefinition } from "./toolTypes";
 
@@ -104,8 +104,8 @@ export const editTools: ToolDefinition[] = [
     name: "Group",
     category: "edit",
     icon: "⛓",
-    description: "Group the selected parts together.",
-    hint: "Creates a new group and assigns all selected parts to it.",
+    description: "Combine the selected parts into one physical object.",
+    hint: "Merges the shapes into one part that moves as one object in 2D and 3D.",
     shortcut: "Ctrl+G",
     tooltipAnimation: "move",
     supportedModes: ["2d", "3d"],
@@ -117,8 +117,7 @@ export const editTools: ToolDefinition[] = [
         store.status("Select at least two parts to group", "warning");
         return;
       }
-      const groupId = addGroup(`Group ${ctx.selection.length}`);
-      for (const id of ctx.selection) setPartGroup(id, groupId);
+      groupParts(ctx.selection);
     },
     isEnabled: (ctx: ToolContext) => ctx.selection.length >= 2,
   },
@@ -140,7 +139,7 @@ export const editTools: ToolDefinition[] = [
         store.status("Nothing selected to ungroup", "warning");
         return;
       }
-      for (const id of ctx.selection) setPartGroup(id, null);
+      ungroupParts(ctx.selection);
     },
     isEnabled: (ctx: ToolContext) => ctx.selection.length > 0,
   },

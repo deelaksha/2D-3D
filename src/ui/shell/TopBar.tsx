@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { store, useProject, useUI } from "@/core/store/store";
-import { makeProject } from "@/core/model/defaults";
-import { downloadProject, openImportDialog } from "@/core/persist/io";
+import { downloadProject, createNewProjectWithSaveLocation, enableProjectFileAutosave, openImportDialog, openProjectFile } from "@/core/persist/io";
 import {
   deleteParts,
   duplicateSelection,
+  groupParts,
   selectAll,
+  ungroupParts,
   setMode,
 } from "@/core/store/actions";
 
@@ -25,12 +26,12 @@ function openSearch() {
   store.setUI({ commandPaletteOpen: true, paletteScope: null });
 }
 
-function handleNew() {
+async function handleNew() {
   const hasWork = store.getState().project.parts.length > 0;
   if (hasWork && !window.confirm("Start a new project? Your current design will be replaced. Export first if you want to keep it.")) {
     return;
   }
-  store.loadProject(makeProject(), "New project");
+  await createNewProjectWithSaveLocation();
 }
 
 type MenuItem =
@@ -141,10 +142,12 @@ export default function TopBar(props: {
   const mode = store.getState().ui.mode;
 
   const fileItems: MenuItem[] = [
-    { kind: "action", label: "New project", run: handleNew },
+    { kind: "action", label: "New project…", run: () => void handleNew() },
     { kind: "action", label: "🏠 Load House Kit Template", run: () => store.loadProject(houseDemo(), "Loaded House Kit Template") },
     { kind: "sep" },
-    { kind: "action", label: "Import…", run: () => openImportDialog() },
+    { kind: "action", label: "Open project file…", run: () => void openProjectFile() },
+    { kind: "action", label: "Import copy…", run: () => openImportDialog() },
+    { kind: "action", label: "Choose save file & enable autosave…", run: () => void enableProjectFileAutosave() },
     { kind: "action", label: "Export…", run: () => downloadProject() },
   ];
 
@@ -153,6 +156,8 @@ export default function TopBar(props: {
     { kind: "action", label: "Redo", shortcut: "⌘⇧Z", disabled: !store.canRedo(), run: () => store.redo() },
     { kind: "sep" },
     { kind: "action", label: "Duplicate", shortcut: "⌘D", disabled: !hasSelection, run: () => duplicateSelection() },
+    { kind: "action", label: "Combine into one part", shortcut: "⌘G", disabled: store.getState().ui.selection.length < 2, run: () => groupParts(store.getState().ui.selection) },
+    { kind: "action", label: "Ungroup", shortcut: "⌘⇧G", disabled: !store.getState().ui.selection.some((id) => store.getState().project.parts.find((part) => part.id === id)?.groupId), run: () => ungroupParts(store.getState().ui.selection) },
     { kind: "action", label: "Delete", shortcut: "⌦", disabled: !hasSelection, run: () => deleteParts(store.getState().ui.selection) },
     { kind: "sep" },
     { kind: "action", label: "Select all", shortcut: "⌘A", run: () => selectAll() },

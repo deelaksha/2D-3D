@@ -41,6 +41,7 @@ import {
   setConnectorCustomType,
   createPortPair,
   connectPortPair,
+  convertShapeToConnector,
   rotatePart,
   setPartMaterial,
   setPartShape,
@@ -541,6 +542,7 @@ function PartEditor(props: { part: Part; project: Project; unit: Unit }): JSX.El
   const { part, project, unit } = props;
   const material = materialOf(project, part.materialId);
   const swatch = part.color ?? material?.color ?? "#c8a25a";
+  const unassignedProfiles = part.modifiers.filter((modifier) => !modifier.connectorId && modifier.op !== "intersect");
 
   return (
     <div className="wk-panel__body">
@@ -560,6 +562,18 @@ function PartEditor(props: { part: Part; project: Project; unit: Unit }): JSX.El
         min={MIN_DIM_MM}
         onCommit={(mm) => setPartShape(part.id, { width: mm })}
       />
+
+      <div className="wk-section-title">2D custom joints</div>
+      <p style={{ margin: "0 0 8px", color: "var(--wk-ink-soft)", fontSize: 11 }}>Draw a small shape on this part, use Union or Cut Shape, then mark that exact outline below. It becomes a real connector or receiver directly in the 2D canvas.</p>
+      {unassignedProfiles.length === 0 ? (
+        <div className="wk-empty">No drawn plug or cutout to mark yet.</div>
+      ) : unassignedProfiles.map((modifier) => (
+        <div key={modifier.id} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 7, padding: 7, border: "1px solid var(--wk-border)", borderRadius: 7 }}>
+          <div style={{ gridColumn: "1 / -1", fontSize: 11 }}><strong>{modifier.name || "Drawn shape"}</strong><span style={{ color: "var(--wk-ink-soft)" }}> · {modifier.shape.kind} · {modifier.op === "union" ? "plug material" : "cutout"}</span></div>
+          <button type="button" className="wk-btn wk-btn--primary" style={{ fontSize: 10 }} onClick={() => convertShapeToConnector(part.id, modifier.id, undefined, "custom", "custom", "insert")}>Mark connector (+)</button>
+          <button type="button" className="wk-btn wk-btn--ghost" style={{ fontSize: 10 }} onClick={() => convertShapeToConnector(part.id, modifier.id, undefined, "custom", "custom", "receiver")}>Mark receiver (−)</button>
+        </div>
+      ))}
       <NumField
         label="Height"
         valueMm={part.height}

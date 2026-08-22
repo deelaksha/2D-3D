@@ -455,6 +455,19 @@ function locateConnector(id: string): { part: Part; connector: Connector } | nul
   return null;
 }
 
+/** Copy a hand-drawn profile to a mate, centred at the mate's requested local
+ * position while preserving every node, curve, size, and rotation. */
+function profileForMate(shape: import("../model/types").Shape | undefined, position: Vec2) {
+  if (!shape) return undefined;
+  const copy = structuredClone(shape);
+  const oldCenter = { x: copy.x + copy.width / 2, y: copy.y + copy.height / 2 };
+  const dx = position.x - oldCenter.x, dy = position.y - oldCenter.y;
+  copy.x += dx;
+  copy.y += dy;
+  if (copy.nodes) copy.nodes = copy.nodes.map((node) => ({ ...node, x: node.x + dx, y: node.y + dy, cIn: node.cIn && { x: node.cIn.x + dx, y: node.cIn.y + dy }, cOut: node.cOut && { x: node.cOut.x + dx, y: node.cOut.y + dy } }));
+  return copy;
+}
+
 /**
  * Turn a connector into its OPPOSITE in place — the mating counterpart type +
  * role (Tab⇄Slot, Peg⇄Hole, an insert plug becomes the socket it fills, etc.).
@@ -529,6 +542,7 @@ export function createReceiverForConnector(sourceConnectorId: string, targetPart
     diameter: src.diameter,
     pattern: src.pattern,
     customTypeName: src.customTypeName,
+    profileShape: profileForMate(src.profileShape, recPos),
     tolerance: src.tolerance,
     orientation: src.orientation,
     referencedConnectorId: src.id,
@@ -629,7 +643,8 @@ export function convertShapeToConnector(
   modifierId: string,
   targetPartId?: string,
   connectorType: ConnectorType = "custom",
-  pattern: ConnectorPattern = "custom"
+  pattern: ConnectorPattern = "custom",
+  role?: ConnectorRole,
 ): string | null {
   const project = store.getState().project;
   const part = project.parts.find((p) => p.id === partId);
@@ -651,6 +666,8 @@ export function convertShapeToConnector(
     diameter: shape.radius ? shape.radius * 2 : undefined,
     pattern: pattern,
     customTypeName: shape.kind,
+    profileShape: structuredClone(shape),
+    role: role ?? (mod.op === "union" ? "insert" : "receiver"),
   });
 
   // Remove standalone raw modifier since connector feature handles geometry
@@ -702,7 +719,14 @@ export function createPortPair(
     sourcePart;
 
   const label = generateNextPortLabel(project);
-  const recType = complementType(type);
+  // The selected source can be either side of the joint. When it starts as a
+  // receiver, invert the feature types/roles so the mating part gets the plug.
+  const sourceIsReceiver = overrides?.role === "receiver";
+  const sourceType = sourceIsReceiver ? complementType(type) : type;
+  const targetType = sourceIsReceiver ? type : complementType(type);
+  const sourceRole: ConnectorRole = sourceIsReceiver ? "receiver" : "insert";
+  const targetRole: ConnectorRole = sourceIsReceiver ? "insert" : "receiver";
+  const clearance = Math.max(0, overrides?.tolerance ?? 0.2);
 
   const srcEdge = calcEdgePosition(sourcePart, sourcePlacement);
   const tgtEdge = calcEdgePosition(targetPart, targetPlacement ?? { edge: "center" });
@@ -710,9 +734,9 @@ export function createPortPair(
   store.beginGesture();
 
   // 1. Create Plug (Connector)
-  const plugId = addConnector(sourcePart.id, type, srcEdge.pos, {
-    name: `${label} (Plug)`,
-    role: "insert",
+  const plugId = addConnector(sourcePart.id, sourceType, srcEdge.pos, {
+    name: `${label} (${sourceIsReceiver ? "Receiver" : "Plug"})`,
+    role: sourceRole,
     width: 12,
     height: 4,
     depth: sourcePart.thickness,
@@ -722,14 +746,15 @@ export function createPortPair(
   });
 
   // 2. Create Receiver (Socket) with EXACT matching dimensions
-  const receiverId = addConnector(targetPart.id, recType, tgtEdge.pos, {
-    name: `${label} (Receiver)`,
-    role: "receiver",
-    width: overrides?.width ?? 12,
-    height: overrides?.height ?? 4,
+  const receiverId = addConnector(targetPart.id, targetType, tgtEdge.pos, {
+    name: `${label} (${sourceIsReceiver ? "Plug" : "Receiver"})`,
+    role: targetRole,
+    // Receiver geometry grows by the configured manufacturing clearance.
+    width: (overrides?.width ?? 12) + (targetRole === "receiver" ? clearance * 2 : 0),
+    height: (overrides?.height ?? 4) + (targetRole === "receiver" ? clearance * 2 : 0),
     depth: targetPart.thickness,
     orientation: tgtEdge.orientation,
-    tolerance: overrides?.tolerance ?? 0.2,
+    tolerance: clearance,
     diameter: overrides?.diameter,
     pattern: overrides?.pattern,
     customTypeName: overrides?.customTypeName,
@@ -897,6 +922,64 @@ export function setPartGroup(partId: string, groupId: string | null): void {
   updatePart(partId, { groupId }, "Group part");
 }
 
+/** Rebase a child's local outline into its destination part's local plane. */
+function rebaseShapeToPart(shape: Shape, from: Part, to: Part): Shape {
+  const copy = structuredClone(shape);
+  const dx = from.transform.x - to.transform.x;
+  const dy = from.transform.y - to.transform.y;
+  copy.x += dx; copy.y += dy;
+  copy.rotation += from.transform.rotation - to.transform.rotation;
+  if (copy.nodes) copy.nodes = copy.nodes.map((node) => ({ ...node, x: node.x + dx, y: node.y + dy, cIn: node.cIn && { x: node.cIn.x + dx, y: node.cIn.y + dy }, cOut: node.cOut && { x: node.cOut.x + dx, y: node.cOut.y + dy } }));
+  return copy;
+}
+
+/** Combine selected parts into ONE physical part. Their outlines and existing
+ * cutouts become modifiers on the first selected part, yielding one object in
+ * 2D and one extrusion in 3D — not merely an organisational folder. */
+export function groupParts(partIds: string[], name?: string): string | null {
+  const ids = [...new Set(partIds)];
+  if (ids.length < 2) return null;
+  const primaryId = ids[0];
+  store.commit("Combine parts", (d) => {
+    const primary = d.parts.find((part) => part.id === primaryId);
+    if (!primary) return;
+    const children = d.parts.filter((part) => ids.includes(part.id) && part.id !== primaryId);
+    for (const child of children) {
+      primary.modifiers.push({ id: uid("mod"), op: "union", shape: rebaseShapeToPart(child.shape, child, primary), name: child.name });
+      for (const modifier of child.modifiers) {
+        if (modifier.connectorId) continue; // regenerated below for the new connector id
+        primary.modifiers.push({ ...structuredClone(modifier), id: uid("mod"), shape: rebaseShapeToPart(modifier.shape, child, primary) });
+      }
+      for (const connector of child.connectors) {
+        const position = { x: connector.position.x + child.transform.x - primary.transform.x, y: connector.position.y + child.transform.y - primary.transform.y };
+        const mergedConnector = { ...structuredClone(connector), id: uid("con"), partId: primary.id, position, profileShape: connector.profileShape ? rebaseShapeToPart(connector.profileShape, child, primary) : undefined };
+        primary.connectors.push(mergedConnector);
+        syncConnectorFeature(primary, mergedConnector);
+      }
+    }
+    const removed = new Set(children.map((child) => child.id));
+    d.parts = d.parts.filter((part) => !removed.has(part.id));
+    d.assembly.placements = d.assembly.placements.filter((placement) => !removed.has(placement.partId));
+    for (const connection of d.assembly.connections) {
+      if (removed.has(connection.sourcePart)) connection.sourcePart = primary.id;
+      if (removed.has(connection.targetPart)) connection.targetPart = primary.id;
+    }
+    primary.name = name?.trim() || primary.name;
+  });
+  selectOne(primaryId);
+  return primaryId;
+}
+
+/** Release whole groups represented by the selected parts. */
+export function ungroupParts(partIds: string[]): void {
+  const groups = new Set(store.getState().project.parts.filter((p) => partIds.includes(p.id)).map((p) => p.groupId).filter((id): id is string => !!id));
+  if (!groups.size) return;
+  store.commit("Ungroup parts", (d) => {
+    for (const part of d.parts) if (part.groupId && groups.has(part.groupId)) part.groupId = null;
+    d.groups = d.groups.filter((group) => !groups.has(group.id));
+  });
+}
+
 /* ---- dimensions --------------------------------------------------- */
 
 export function addDimension(dim: Omit<Dimension, "id">): string {
@@ -1013,7 +1096,11 @@ export function select(ids: string[]): void {
 }
 
 export function selectOne(id: string | null): void {
-  store.setUI({ selection: id ? [id] : [], activePartId: id, selectedConnectorId: null });
+  const part = id ? findPart(id) : undefined;
+  const selection = part?.groupId
+    ? store.getState().project.parts.filter((candidate) => candidate.groupId === part.groupId).map((candidate) => candidate.id)
+    : id ? [id] : [];
+  store.setUI({ selection, activePartId: id, selectedConnectorId: null });
 }
 
 export function toggleSelect(id: string): void {

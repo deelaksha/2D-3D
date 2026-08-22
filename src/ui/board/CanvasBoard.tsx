@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useProject, store } from "@/core/store/store";
 import { formatLength } from "@/core/units";
 import { packPartsOnSheets, STANDARD_SHEETS, type PackedItem, type SheetPreset } from "./nesting";
-import type { Part } from "@/core/model/types";
+import { boundsOfPoints, shapeOutline } from "@/core/geometry/outline";
 
 export default function CanvasBoard(): JSX.Element {
   const project = useProject();
@@ -24,9 +24,11 @@ export default function CanvasBoard(): JSX.Element {
   const [customHeight, setCustomHeight] = useState<number>(210);
   const [margin, setMargin] = useState<number>(8);
   const [gap, setGap] = useState<number>(4);
-  const [showPerforations, setShowPerforations] = useState<boolean>(true);
-  const [showDimensions, setShowDimensions] = useState<boolean>(true);
-  const [showLabels, setShowLabels] = useState<boolean>(true);
+  // Production defaults: only black cut paths are sent to print/SVG. Guides
+  // are optional because a laser must not interpret them as additional cuts.
+  const [showPerforations, setShowPerforations] = useState<boolean>(false);
+  const [showDimensions, setShowDimensions] = useState<boolean>(false);
+  const [showLabels, setShowLabels] = useState<boolean>(false);
   const [activeSheetIndex, setActiveSheetIndex] = useState<number>(0);
 
   // Quantities per part (defaults to 1, or 2 for walls/roof if matching house kit)
@@ -179,6 +181,16 @@ export default function CanvasBoard(): JSX.Element {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     store.status("Exported sheet vector SVG for laser cutting!", "ok");
+  };
+
+  const outlinePath = (part: typeof project.parts[number], item: PackedItem, shape = part.shape) => {
+    // Canvas parts are drawn in world-sized coordinates, whereas the packing
+    // board starts every packed item at (0,0). Normalize all paths against the
+    // base outline bounds so Board, 2D and 3D show the same physical geometry.
+    const baseBounds = boundsOfPoints(shapeOutline(part.shape).flat());
+    const sx = item.width / Math.max(1, baseBounds.maxX - baseBounds.minX);
+    const sy = item.height / Math.max(1, baseBounds.maxY - baseBounds.minY);
+    return shapeOutline(shape).map((loop) => loop.map((point, index) => `${index ? "L" : "M"} ${((point.x - baseBounds.minX) * sx).toFixed(3)} ${((point.y - baseBounds.minY) * sy).toFixed(3)}`).join(" ") + " Z").join(" ");
   };
 
   return (
@@ -401,9 +413,10 @@ export default function CanvasBoard(): JSX.Element {
 
             {/* THE SVG BOARD SHEET */}
             <svg
-              width="100%"
-              height="100%"
+              width={`${sheetWidth}mm`}
+              height={`${sheetHeight}mm`}
               viewBox={`-30 -30 ${sheetWidth + 60} ${sheetHeight + 70}`}
+              style={{ aspectRatio: `${sheetWidth} / ${sheetHeight}` }}
               className="wk-printable-svg"
             >
               <defs>
@@ -424,11 +437,9 @@ export default function CanvasBoard(): JSX.Element {
                 y={0}
                 width={sheetWidth}
                 height={sheetHeight}
-                fill="url(#wood-pattern)"
-                stroke="#a67c48"
-                strokeWidth="2"
-                filter="url(#sheet-shadow)"
-                rx={2}
+                fill="#ffffff"
+                stroke="#000000"
+                strokeWidth="0.5"
               />
 
               {/* SHEET INNER MARGIN BOUNDARY */}
@@ -438,8 +449,8 @@ export default function CanvasBoard(): JSX.Element {
                 width={sheetWidth - margin * 2}
                 height={sheetHeight - margin * 2}
                 fill="none"
-                stroke="#d4a36a"
-                strokeWidth="1"
+                stroke="#777777"
+                strokeWidth="0.3"
                 strokeDasharray="4 3"
               />
 
@@ -484,8 +495,8 @@ export default function CanvasBoard(): JSX.Element {
                         width={item.width + gap}
                         height={item.height + gap}
                         fill="none"
-                        stroke="#b45309"
-                        strokeWidth="1"
+                        stroke="#555555"
+                        strokeWidth="0.25"
                         strokeDasharray="3 3"
                       />
                     </g>
@@ -508,77 +519,28 @@ export default function CanvasBoard(): JSX.Element {
                     onDoubleClick={() => handleRotateItem(item.id)}
                     style={{ cursor: isDragging ? "grabbing" : "grab" }}
                   >
-                    {/* Main Wooden Cut Body */}
-                    <rect
-                      x={0}
-                      y={0}
-                      width={item.width}
-                      height={item.height}
-                      fill="#e6b880"
-                      stroke="#451a03"
-                      strokeWidth="1.8"
-                      rx="3"
-                    />
+                    {/* Production cut paths: black vector outlines on white stock. */}
+                    <path d={outlinePath(part, item)} fill="none" stroke="#000000" strokeWidth="0.35" vectorEffect="non-scaling-stroke" />
 
                     {/* Render Modifiers (e.g. Window Cutout) */}
                     {part.modifiers.map((mod) => {
                       if (mod.op === "subtract" && mod.shape) {
-                        const mx = (mod.shape.x / part.width) * item.width;
-                        const my = (mod.shape.y / part.height) * item.height;
-                        const mw = (mod.shape.width / part.width) * item.width;
-                        const mh = (mod.shape.height / part.height) * item.height;
                         return (
-                          <rect
+                          <path
                             key={mod.id}
-                            x={mx}
-                            y={my}
-                            width={mw}
-                            height={mh}
+                            d={outlinePath(part, item, mod.shape)}
                             fill="#ffffff"
-                            stroke="#451a03"
-                            strokeWidth="1.5"
+                            stroke="#000000"
+                            strokeWidth="0.35"
+                            vectorEffect="non-scaling-stroke"
                           />
                         );
                       }
                       return null;
                     })}
 
-                    {/* Connector Tab & Slot Markers */}
-                    {part.connectors.map((c) => {
-                      const cx = (c.position.x / part.width) * item.width;
-                      const cy = (c.position.y / part.height) * item.height;
-                      const isInsert = c.role === "insert" || c.type === "tab" || c.type === "peg";
-
-                      return (
-                        <g key={c.id}>
-                          {isInsert ? (
-                            /* Outward Tab Plug */
-                            <rect
-                              x={cx - 6}
-                              y={cy - 4}
-                              width="12"
-                              height="8"
-                              fill="#22c55e"
-                              stroke="#ffffff"
-                              strokeWidth="1"
-                              rx="1"
-                            />
-                          ) : (
-                            /* Inward Slot Socket */
-                            <rect
-                              x={cx - 6}
-                              y={cy - 4}
-                              width="12"
-                              height="8"
-                              fill="#3b82f6"
-                              stroke="#ffffff"
-                              strokeWidth="1"
-                              rx="1"
-                            />
-                          )}
-                        </g>
-                      );
-                    })}
+                    {/* Union features are also emitted as black vectors for the laser. */}
+                    {part.modifiers.filter((mod) => mod.op === "union").map((mod) => <path key={mod.id} d={outlinePath(part, item, mod.shape)} fill="none" stroke="#000000" strokeWidth="0.35" vectorEffect="non-scaling-stroke" />)}
 
                     {/* Part Title Label & Dimensions */}
                     {showLabels && (

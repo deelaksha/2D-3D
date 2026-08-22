@@ -7,9 +7,11 @@ import {
   cutSelection,
   deleteParts,
   duplicateSelection,
+  groupParts,
   nudgeSelection,
   pasteClipboard,
   selectAll,
+  ungroupParts,
 } from "./core/store/actions";
 import { registry } from "./tools/registry";
 import { activateTool } from "./tools/runtime";
@@ -233,6 +235,14 @@ function AppContent() {
       if (mod && e.key.toLowerCase() === "d") {
         e.preventDefault();
         duplicateSelection();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        const selection = store.getState().ui.selection;
+        if (e.shiftKey) ungroupParts(selection);
+        else if (selection.length >= 2) groupParts(selection);
+        else store.status("Select at least two parts to group", "warning");
         return;
       }
       // Arrow-key nudge (1 mm, or 10 mm with Shift) for the current selection.

@@ -16,8 +16,10 @@ export interface SheetPreset {
 }
 
 export const STANDARD_SHEETS: SheetPreset[] = [
+  { id: "a5", name: "A5 Sheet", width: 210, height: 148, description: "210 × 148 mm" },
   { id: "a4", name: "A4 Wooden Sheet", width: 297, height: 210, description: "297 × 210 mm (Standard A4)" },
   { id: "a3", name: "A3 Wooden Sheet", width: 420, height: 297, description: "420 × 297 mm (Double A4)" },
+  { id: "a2", name: "A2 Sheet", width: 594, height: 420, description: "594 × 420 mm" },
   { id: "laser-small", name: "Desktop Laser Bed", width: 300, height: 300, description: "300 × 300 mm Square" },
   { id: "laser-large", name: "Large CNC Bed", width: 600, height: 400, description: "600 × 400 mm Industrial Sheet" },
 ];

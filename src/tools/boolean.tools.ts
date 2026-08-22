@@ -4,7 +4,7 @@
  * selected part as the target and the second as the tool shape.
  */
 import { store } from "@/core/store/store";
-import { addModifier, deletePart } from "@/core/store/actions";
+import { addModifier, deletePart, selectOne } from "@/core/store/actions";
 import type { Part } from "@/core/model/types";
 import type { ToolContext, ToolDefinition } from "./toolTypes";
 
@@ -14,6 +14,19 @@ function findTargetAndTool(ctx: ToolContext): { target: Part; tool: Part } | nul
   const tool = ctx.project.parts.find((p) => p.id === ctx.selection[1]);
   if (!target || !tool) return null;
   return { target, tool };
+}
+
+/** A drawn tool part has its own world transform; modifiers live in the target
+ * part's local coordinates. Rebase it so a profile stays exactly where it was
+ * drawn before it is marked as a 2D connector or receiver. */
+function shapeInTarget(target: Part, tool: Part) {
+  const shape = structuredClone(tool.shape);
+  const dx = tool.transform.x - target.transform.x;
+  const dy = tool.transform.y - target.transform.y;
+  shape.x += dx; shape.y += dy;
+  shape.rotation += tool.transform.rotation - target.transform.rotation;
+  if (shape.nodes) shape.nodes = shape.nodes.map((node) => ({ ...node, x: node.x + dx, y: node.y + dy, cIn: node.cIn && { x: node.cIn.x + dx, y: node.cIn.y + dy }, cOut: node.cOut && { x: node.cOut.x + dx, y: node.cOut.y + dy } }));
+  return shape;
 }
 
 export const booleanTools: ToolDefinition[] = [
@@ -35,8 +48,9 @@ export const booleanTools: ToolDefinition[] = [
         return;
       }
       const { target, tool } = pair;
-      addModifier(target.id, "union", tool.shape, "union");
+      addModifier(target.id, "union", shapeInTarget(target, tool), tool.name || "Drawn plug");
       deletePart(tool.id);
+      selectOne(target.id);
       store.status(`Merged ${tool.name} into ${target.name}.`, "info");
     },
   },
@@ -58,8 +72,9 @@ export const booleanTools: ToolDefinition[] = [
         return;
       }
       const { target, tool } = pair;
-      addModifier(target.id, "subtract", tool.shape, "cut");
+      addModifier(target.id, "subtract", shapeInTarget(target, tool), tool.name || "Drawn cutout");
       deletePart(tool.id);
+      selectOne(target.id);
       store.status(`Cut ${tool.name} out of ${target.name}.`, "info");
     },
   },
@@ -81,7 +96,7 @@ export const booleanTools: ToolDefinition[] = [
         return;
       }
       const { target, tool } = pair;
-      addModifier(target.id, "intersect", tool.shape, "intersect");
+      addModifier(target.id, "intersect", shapeInTarget(target, tool), "intersect");
       deletePart(tool.id);
       store.status(`Intersected ${target.name} with ${tool.name}.`, "info");
     },
@@ -104,7 +119,7 @@ export const booleanTools: ToolDefinition[] = [
         return;
       }
       const { target, tool } = pair;
-      addModifier(target.id, "subtract", tool.shape, "divide");
+      addModifier(target.id, "subtract", shapeInTarget(target, tool), "divide");
       deletePart(tool.id);
       store.status(`Divided ${target.name} using ${tool.name}.`, "info");
     },

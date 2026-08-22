@@ -1,4 +1,4 @@
-import { useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { Fragment, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { useProject, useUI } from "@/core/store/store";
 import {
   deletePart,
@@ -22,6 +22,7 @@ export default function LayersPanel() {
   const [dragId, setDragId] = useState<string | null>(null);
 
   const parts = [...project.parts].sort((a, b) => a.order - b.order);
+  const groupById = new Map(project.groups.map((group) => [group.id, group]));
 
   function startRename(part: Part) {
     setRenamingId(part.id);
@@ -75,10 +76,14 @@ export default function LayersPanel() {
         {parts.map((part) => {
           const active = ui.selection.includes(part.id);
           const isRenaming = renamingId === part.id;
+          const group = part.groupId ? groupById.get(part.groupId) : undefined;
+          const isFirstInGroup = !!group && !parts.some((candidate) => candidate.groupId === group.id && candidate.order < part.order);
           return (
-            <div key={part.id}>
+            <Fragment key={part.id}>
+              {isFirstInGroup && <div className="wk-row" style={{ marginTop: 7, background: "rgba(245, 158, 11, .10)", color: "var(--wk-accent)", fontWeight: 700, fontSize: 11 }} title="Grouped parts move and select together"><span className="wk-row__icon">▣</span><span className="wk-row__name">{group.name}</span><span className="wk-chip">{parts.filter((candidate) => candidate.groupId === group.id).length} parts</span></div>}
               <div
                 className={`wk-row${active ? " wk-row--active" : ""}${part.locked ? " wk-row--locked" : ""}${part.visible ? "" : " wk-row--hidden"}`}
+                style={group ? { marginLeft: 14 } : undefined}
                 draggable
                 onDragStart={(e) => handleDragStart(e, part)}
                 onDragOver={handleDragOver}
@@ -157,7 +162,7 @@ export default function LayersPanel() {
                   </button>
                 </span>
               </div>
-            </div>
+            </Fragment>
           );
         })}
       </div>

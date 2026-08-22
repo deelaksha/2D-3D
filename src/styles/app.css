@@ -550,7 +550,12 @@ button { font-family: inherit; }
 /* ------------------------------------------------------------------ */
 
 .wk-app--board {
-  flex-direction: column;
+  /* Board is a full workspace, not the middle cell of the 2D three-column grid. */
+  grid-template-columns: 1fr;
+  grid-template-rows: var(--wk-topbar-h) 1fr;
+  grid-template-areas:
+    "topbar"
+    "canvas";
 }
 
 .wk-board-page {
@@ -833,7 +838,8 @@ button { font-family: inherit; }
 .wk-printable-svg {
   width: 100%;
   height: 100%;
-  filter: drop-shadow(0 10px 24px rgba(0,0,0,0.12));
+  background: #ffffff;
+  filter: drop-shadow(0 10px 24px rgba(0,0,0,0.18));
 }
 
 /* ------------------------------------------------------------------ */
@@ -864,5 +870,9 @@ button { font-family: inherit; }
   }
   .wk-printable-svg {
     filter: none !important;
+    width: auto !important;
+    height: auto !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
   }
 }
