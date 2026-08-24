@@ -1,0 +1,1052 @@
+Project: Local AI 3D Model Generator
+
+You are the primary coding agent for this project.
+
+Working directory
+
+The project MUST be developed inside:
+
+/home/sonic-claude2/Practice
+
+Do not create the project somewhere else.
+
+1. Overall Goal
+
+Build a fully local AI-powered 3D model generation application.
+
+IMPORTANT:
+
+For the first version, DO NOT integrate an actual 3D-generation AI model.
+
+Instead, build the complete application architecture using MOCK/PLACEHOLDER 3D-generation tools.
+
+Later, the mock implementation will be replaced by a real local 3D AI model without changing the rest of the application.
+
+The final intended architecture is:
+
+User
+→ Frontend
+→ Backend API
+→ AI Agent
+→ Local LLM
+→ Tool Calling
+→ 3D Generation
+→ Mesh Processing
+→ Validation
+→ Export
+→ 3D Viewer
+
+For now:
+
+User
+→ Frontend
+→ Backend API
+→ AI Agent
+→ Local LLM
+→ Tool Calling
+→ MOCK 3D Generator
+→ MOCK Mesh Processing
+→ MOCK Validation
+→ MOCK Export
+
+2. Important Development Rules
+
+Follow these rules throughout the project.
+
+Rule 1 — Work incrementally
+
+DO NOT attempt to implement the entire application in one step.
+
+Work phase-by-phase.
+
+After completing each phase:
+
+Run tests.
+Verify the implementation.
+Explain what was changed.
+Explain how to test it.
+Fix any failures.
+Only then move to the next phase.
+Rule 2 — Never silently skip failures
+
+If something fails:
+
+investigate it
+identify the root cause
+fix it
+rerun the tests
+
+Do not simply work around failures without documenting them.
+
+Rule 3 — Keep the architecture modular
+
+The real 3D model must eventually be replaceable without rewriting:
+
+frontend
+API
+agent
+LLM integration
+conversation state
+tool interfaces
+
+Use interfaces/abstract classes/protocols where appropriate.
+
+Rule 4 — No cloud dependency for the core AI
+
+The LLM must run locally.
+
+Do not make OpenAI, Anthropic, Gemini, or another paid cloud API a required dependency.
+
+We will use a free local LLM.
+
+Rule 5 — Do not integrate the real 3D model yet
+
+Use mock implementations.
+
+Create clean interfaces so that the real model can later replace the mocks.
+
+Rule 6 — Keep secrets out of source code
+
+Use environment variables/configuration files where required.
+
+Never hard-code API keys, passwords, tokens, or credentials.
+
+Rule 7 — Prefer simple engineering
+
+Do not over-engineer the first version.
+
+Build a working MVP first.
+
+3. Phase 0 — Inspect the Environment
+
+Before creating anything, inspect the machine.
+
+Check:
+
+OS
+Python version
+pip
+available RAM
+GPU
+NVIDIA driver
+CUDA
+disk space
+Docker if available
+Node.js
+npm
+Git
+Ollama availability
+
+Run appropriate commands such as:
+
+pwd
+python3 --version
+pip3 --version
+free -h
+df -h
+nvidia-smi
+node --version
+npm --version
+git --version
+ollama --version
+
+Do not install unnecessary software yet.
+
+Create:
+
+docs/environment.md
+
+Document the detected environment.
+
+4. Phase 1 — Project Structure
+
+Create the project structure under:
+
+/home/sonic-claude2/Practice
+
+Use a clean architecture similar to:
+
+Practice/
+│
+├── README.md
+├── .gitignore
+├── .env.example
+│
+├── backend/
+│   ├── app/
+│   │   ├── main.py
+│   │   │
+│   │   ├── api/
+│   │   │   ├── routes/
+│   │   │   └── dependencies.py
+│   │   │
+│   │   ├── agent/
+│   │   │   ├── agent.py
+│   │   │   ├── planner.py
+│   │   │   └── state.py
+│   │   │
+│   │   ├── llm/
+│   │   │   ├── client.py
+│   │   │   └── prompts.py
+│   │   │
+│   │   ├── tools/
+│   │   │   ├── generate_3d.py
+│   │   │   ├── edit_model.py
+│   │   │   ├── validate_model.py
+│   │   │   ├── optimize_model.py
+│   │   │   └── export_model.py
+│   │   │
+│   │   ├── models/
+│   │   │   ├── schemas.py
+│   │   │   └── state.py
+│   │   │
+│   │   ├── services/
+│   │   │   └── model_service.py
+│   │   │
+│   │   └── config.py
+│   │
+│   ├── tests/
+│   │
+│   └── requirements.txt
+│
+├── frontend/
+│
+├── outputs/
+│
+├── data/
+│
+├── scripts/
+│
+├── docs/
+│
+└── tests/
+
+Adjust the structure if necessary, but keep responsibilities separated.
+
+5. Phase 2 — Local LLM
+
+Use a free local LLM.
+
+Prefer Ollama if it is suitable for the detected environment.
+
+First check whether Ollama is installed.
+
+If not installed, explain what needs to be installed before installing it.
+
+After Ollama is available:
+
+Select an appropriate free model based on available RAM/VRAM.
+Pull the model.
+Verify that the model works.
+Run a basic prompt.
+Verify Python can communicate with the local LLM.
+
+The architecture should be:
+
+Python
+  ↓
+Local LLM Client
+  ↓
+Ollama
+  ↓
+Local Model
+
+Do not hard-code the model name throughout the code.
+
+Use configuration such as:
+
+LLM_PROVIDER=ollama
+LLM_MODEL=<selected-model>
+LLM_BASE_URL=<local-url>
+
+Create:
+
+docs/local-llm.md
+
+Document:
+
+selected model
+why it was selected
+RAM/VRAM requirements
+installation
+how to start it
+how to test it
+how Python communicates with it
+6. Phase 3 — Basic LLM Chat
+
+Build a simple Python interface:
+
+response = llm.generate(
+    "Create a futuristic gaming chair"
+)
+
+The LLM should respond successfully.
+
+Create tests proving:
+
+LLM connection works
+prompt can be sent
+response is received
+failures are handled cleanly
+7. Phase 4 — Structured 3D Specification
+
+The LLM should NOT directly generate arbitrary tool commands.
+
+Instead, convert natural language into a structured specification.
+
+Example user input:
+
+"Create a futuristic black and red gaming chair with metal legs."
+
+Expected structured output:
+
+{
+  "object": "gaming chair",
+  "style": "futuristic",
+  "materials": [
+    "leather",
+    "metal"
+  ],
+  "colors": [
+    "black",
+    "red"
+  ],
+  "parts": [
+    "seat",
+    "backrest",
+    "armrests",
+    "metal legs"
+  ],
+  "complexity": "medium"
+}
+
+Define Pydantic schemas for this.
+
+The LLM output must be validated.
+
+If invalid:
+
+Detect invalid output.
+Retry or repair the response.
+Validate again.
+Fail gracefully if still invalid.
+
+Create tests for valid and invalid LLM outputs.
+
+8. Phase 5 — Mock 3D Generator
+
+Create the first 3D tool:
+
+generate_3d(...)
+
+DO NOT use a real AI model.
+
+Implement a mock generator.
+
+It should accept the structured 3D specification and return something like:
+
+{
+  "success": true,
+  "model_id": "model_001",
+  "status": "generated",
+  "file_path": "outputs/model_001/model.glb"
+}
+
+The mock implementation may generate:
+
+a placeholder GLB
+a simple primitive
+or a generated test asset
+
+The important part is that it behaves like a real 3D generation service.
+
+The rest of the application must not know that it is a mock.
+
+Create an interface such as:
+
+class ThreeDGenerator:
+    def generate(...):
+        ...
+
+Then:
+
+class MockThreeDGenerator(ThreeDGenerator):
+    ...
+
+Later we will implement:
+
+class RealThreeDGenerator(ThreeDGenerator):
+    ...
+9. Phase 6 — Mock Model Editing
+
+Create:
+
+edit_model(...)
+
+It should support requests such as:
+
+Make the chair wider.
+Change the material to metal.
+Make the legs longer.
+Change the color to blue.
+
+For now, the mock implementation can update model metadata/state rather than performing actual mesh editing.
+
+Example:
+
+{
+  "success": true,
+  "model_id": "model_001",
+  "version": 2,
+  "changes": {
+    "width": "+20%"
+  }
+}
+10. Phase 7 — Model State
+
+Create persistent model state.
+
+Example:
+
+{
+  "model_id": "model_001",
+  "version": 2,
+  "object": "gaming chair",
+  "style": "futuristic",
+  "materials": [
+    "leather",
+    "metal"
+  ],
+  "colors": [
+    "black",
+    "red"
+  ]
+}
+
+For the MVP, SQLite is acceptable.
+
+Do not introduce PostgreSQL or another complex database unless there is a real requirement.
+
+Support:
+
+create model
+retrieve model
+update model
+version model
+list models
+11. Phase 8 — Validation Tool
+
+Create:
+
+validate_model(...)
+
+For the mock implementation, return simulated validation information.
+
+Example:
+
+{
+  "valid": true,
+  "polygon_count": 12000,
+  "has_texture": true,
+  "has_normals": true,
+  "errors": []
+}
+
+Design the interface so that a real mesh validator can later replace it.
+
+12. Phase 9 — Optimization Tool
+
+Create:
+
+optimize_model(...)
+
+Support conceptual operations such as:
+
+reduce polygon count
+make game-ready
+optimize texture size
+
+For now, update metadata/state only.
+
+Later this will connect to real Blender/mesh-processing functionality.
+
+13. Phase 10 — Export Tool
+
+Create:
+
+export_model(...)
+
+Support the conceptual formats:
+
+GLB
+OBJ
+FBX
+
+For now, generate placeholder files or copy a test asset.
+
+Return:
+
+{
+  "success": true,
+  "model_id": "model_001",
+  "format": "glb",
+  "file_path": "outputs/model_001/model.glb"
+}
+14. Phase 11 — Agent
+
+Now build the agent.
+
+The agent should use the local LLM to understand user intent and call tools.
+
+Available tools:
+
+generate_3d
+edit_model
+validate_model
+optimize_model
+export_model
+
+Architecture:
+
+User
+ ↓
+Agent
+ ↓
+Local LLM
+ ↓
+Tool decision
+ ↓
+Tool execution
+ ↓
+Tool result
+ ↓
+LLM
+ ↓
+Final response
+
+Example:
+
+User:
+
+"Create a wooden table."
+
+Agent:
+
+generate_3d(
+    object="table",
+    material="wood"
+)
+
+Example:
+
+User:
+
+"Make it wider."
+
+Agent identifies the current model and calls:
+
+edit_model(
+    model_id="model_001",
+    changes={
+        "width": "+20%"
+    }
+)
+15. Phase 12 — Multi-step Agent Workflow
+
+Support workflows such as:
+
+User:
+Create a low-poly wooden table and make it game-ready.
+
+The agent should reason through:
+
+1. generate_3d
+2. optimize_model
+3. validate_model
+4. export_model
+
+The final response should summarize the operations.
+
+Do not allow arbitrary shell commands from the LLM.
+
+The LLM may ONLY invoke explicitly registered application tools.
+
+This is an important security requirement.
+
+16. Phase 13 — Conversation Memory
+
+Support conversations like:
+
+User:
+
+"Create a chair."
+
+AI:
+
+"Created chair_001."
+
+User:
+
+"Make it wider."
+
+AI:
+
+"Updated chair_001."
+
+User:
+
+"Change the legs to metal."
+
+AI:
+
+"Updated chair_001."
+
+The system must maintain:
+
+conversation ID
+current model ID
+model version
+model specification
+previous tool calls
+17. Phase 14 — FastAPI Backend
+
+Expose the application through FastAPI.
+
+Create endpoints similar to:
+
+GET  /health
+
+POST /chat
+
+POST /models
+
+GET  /models/{model_id}
+
+POST /models/{model_id}/generate
+
+POST /models/{model_id}/edit
+
+POST /models/{model_id}/validate
+
+POST /models/{model_id}/optimize
+
+POST /models/{model_id}/export
+
+GET  /conversations/{conversation_id}
+
+The frontend must communicate only with the API.
+
+Do not put business logic inside API route handlers.
+
+18. Phase 15 — Frontend
+
+Build a simple frontend.
+
+Use a lightweight modern frontend stack such as React/Vite unless there is a strong reason to use something else.
+
+The first UI should contain:
+
+Chat input
+Generate button
+Conversation history
+Current model information
+3D model placeholder/viewer
+Generation status
+Download button
+
+The frontend should NOT contain AI logic.
+
+Architecture:
+
+Frontend
+   ↓
+FastAPI
+   ↓
+Agent
+   ↓
+LLM
+   ↓
+Tools
+19. Phase 16 — 3D Viewer
+
+Use a browser-compatible 3D viewer such as Three.js.
+
+Initially display the placeholder GLB.
+
+Support:
+
+rotate
+zoom
+pan
+reset camera
+
+The viewer should be isolated from the AI logic.
+
+20. Phase 17 — Logging
+
+Add structured logging.
+
+Log:
+
+request
+conversation
+LLM request
+LLM response
+tool selected
+tool arguments
+tool result
+generation time
+errors
+
+Do not log secrets.
+
+21. Phase 18 — Error Handling
+
+Handle:
+
+LLM unavailable
+Ollama unavailable
+invalid LLM JSON
+tool failure
+model not found
+invalid model state
+invalid user request
+file generation failure
+API failure
+frontend failure
+
+Return useful errors instead of stack traces to users.
+
+Keep detailed stack traces in logs.
+
+22. Phase 19 — Testing
+
+Build tests at every layer.
+
+Unit tests
+
+Test:
+
+schemas
+LLM client
+model state
+tools
+agent
+services
+Integration tests
+
+Test:
+
+User request
+ ↓
+LLM
+ ↓
+structured specification
+ ↓
+agent
+ ↓
+mock tool
+ ↓
+model state
+API tests
+
+Test every FastAPI endpoint.
+
+End-to-end test
+
+The following must work:
+
+User:
+Create a futuristic gaming chair.
+
+↓
+
+LLM
+
+↓
+
+Structured specification
+
+↓
+
+generate_3d()
+
+↓
+
+model_001
+
+↓
+
+validate_model()
+
+↓
+
+export_model()
+
+↓
+
+model.glb
+
+Then:
+
+User:
+Make it wider.
+
+↓
+
+edit_model()
+
+↓
+
+model_001 version 2
+23. Phase 20 — Documentation
+
+Maintain:
+
+README.md
+docs/environment.md
+docs/local-llm.md
+docs/architecture.md
+docs/api.md
+docs/tools.md
+docs/development.md
+docs/testing.md
+docs/future-real-3d-model.md
+
+Document exactly how to:
+
+Install the project.
+Start the local LLM.
+Start the backend.
+Start the frontend.
+Run tests.
+Generate a mock model.
+Edit a model.
+Export a model.
+24. Phase 21 — Real 3D Model Integration Preparation
+
+DO NOT implement the real 3D model yet.
+
+Instead, make sure the interface is ready.
+
+Current:
+
+generator = MockThreeDGenerator()
+
+Future:
+
+generator = RealThreeDGenerator()
+
+The API should remain:
+
+result = generator.generate(specification)
+
+The agent should not care which implementation is being used.
+
+Use configuration:
+
+THREED_PROVIDER=mock
+
+Later:
+
+THREED_PROVIDER=real
+
+This is a critical architectural requirement.
+
+25. Final Target Architecture
+
+The final system should eventually become:
+
+                         USER
+                           │
+                           ▼
+                       FRONTEND
+                           │
+                           ▼
+                        FASTAPI
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │ AI AGENT    │
+                    └──────┬──────┘
+                           │
+                           ▼
+                     LOCAL LLM
+                           │
+                    Tool selection
+                           │
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+        ▼                  ▼                  ▼
+   generate_3d        edit_model        validate_model
+        │                  │                  │
+        ▼                  ▼                  ▼
+   3D Generator       Mesh Processor      Validator
+        │
+        ▼
+   Texture Generator
+        │
+        ▼
+      Exporter
+        │
+        ▼
+       GLB
+        │
+        ▼
+   Three.js Viewer
+
+Initially:
+
+3D Generator = MOCK
+Mesh Processor = MOCK
+Validator = MOCK
+Exporter = MOCK
+
+Later:
+
+3D Generator = REAL LOCAL AI
+Mesh Processor = REAL BLENDER/MESH PIPELINE
+Validator = REAL
+Exporter = REAL
+26. Development Order
+
+Follow this exact order:
+
+M0  Environment
+ ↓
+M1  Project structure
+ ↓
+M2  Local LLM
+ ↓
+M3  Basic LLM client
+ ↓
+M4  Structured 3D specification
+ ↓
+M5  Mock 3D generator
+ ↓
+M6  Mock editing
+ ↓
+M7  Model state/database
+ ↓
+M8  Validation
+ ↓
+M9  Optimization
+ ↓
+M10 Export
+ ↓
+M11 Agent/tool calling
+ ↓
+M12 Multi-step workflows
+ ↓
+M13 Conversation memory
+ ↓
+M14 FastAPI
+ ↓
+M15 Frontend
+ ↓
+M16 3D viewer
+ ↓
+M17 Logging/error handling
+ ↓
+M18 Full testing
+ ↓
+M19 Documentation
+ ↓
+M20 REAL 3D AI MODEL
+27. Definition of Done
+
+The project is considered ready for real 3D AI integration when this complete flow works:
+
+User
+ │
+ │ "Create a futuristic gaming chair"
+ ▼
+Frontend
+ │
+ ▼
+FastAPI
+ │
+ ▼
+Agent
+ │
+ ▼
+Local LLM
+ │
+ ▼
+Structured 3D specification
+ │
+ ▼
+generate_3d()
+ │
+ ▼
+Mock 3D model
+ │
+ ▼
+Model state
+ │
+ ▼
+validate_model()
+ │
+ ▼
+optimize_model()
+ │
+ ▼
+export_model()
+ │
+ ▼
+GLB
+ │
+ ▼
+3D Viewer
+
+And this works:
+
+User:
+Make it wider.
+
+↓
+
+Agent identifies model_001
+
+↓
+
+edit_model()
+
+↓
+
+model_001 version 2
+
+↓
+
+Viewer updates
+
+Only after all of this is stable should we replace the mock implementation with an actual local 3D AI model.
+
+28. How You Should Work
+
+Do NOT start implementing all phases immediately.
+
+Start with Phase 0 only.
+
+Inspect:
+
+/home/sonic-claude2/Practice
+
+and the machine environment.
+
+Then implement Phase 0.
+
+After Phase 0 is complete, show me:
+
+Environment report
+Files created
+Commands executed
+Results
+Any issues
+Recommendation for the local LLM
+
+Then wait for the next phase.
+
+Do not make major architectural changes without explaining why.
+
+The final objective is a clean, modular, fully local AI application where the LLM and agent architecture are independent of the eventual 3D-generation model.
