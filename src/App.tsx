@@ -21,6 +21,7 @@ import LeftToolbox from "./ui/toolbox/LeftToolbox";
 import Canvas2D from "./ui/canvas2d/Canvas2D";
 // 3D is loaded on demand so 2D users don't pay for three.js.
 const Canvas3D = lazy(() => import("./ui/canvas3d/Canvas3D"));
+import AssemblyProgressBar from "./ui/canvas3d/AssemblyProgressBar";
 import LayersPanel from "./ui/panels/LayersPanel";
 import PartsPanel from "./ui/panels/PartsPanel";
 import Inspector from "./ui/panels/Inspector";
@@ -281,11 +282,12 @@ function AppContent() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // 3D is a clean preview: top bar + 3D canvas.
+  // 3D is a clean preview: top bar + progress bar + 3D canvas.
   if (ui.mode === "3d") {
     return (
       <div className="wk-app wk-app--3d">
         <TopBar />
+        <AssemblyProgressBar />
         <div className="wk-canvas">
           <Suspense
             fallback={
