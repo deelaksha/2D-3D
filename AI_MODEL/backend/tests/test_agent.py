@@ -14,7 +14,7 @@ class _ScriptedLLM:
     def __init__(self, script):
         self._script = list(script)
 
-    def generate(self, prompt, system=None):
+    def generate(self, prompt, system=None, format=None):
         text = self._script.pop(0)
         return LLMResponse(text=text, model="scripted", raw={})
 

@@ -13,7 +13,7 @@ class _StaticLLM:
     def __init__(self, text):
         self._text = text
 
-    def generate(self, prompt, system=None):
+    def generate(self, prompt, system=None, format=None):
         return LLMResponse(text=self._text, model="static", raw={})
 
     def is_available(self):

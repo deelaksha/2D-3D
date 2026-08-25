@@ -84,18 +84,26 @@ export default function AiAssistantPanel() {
     return () => clearInterval(interval);
   }, [loading]);
 
-  // Check health on mount
+  // Check health on mount and poll if not healthy
   useEffect(() => {
-    fetch(`${BACKEND_URL}/health`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.status === "healthy") {
-          setBackendHealth("healthy");
-        } else {
-          setBackendHealth("error");
-        }
-      })
-      .catch(() => setBackendHealth("error"));
+    let timer: any;
+    const checkHealth = () => {
+      fetch(`${BACKEND_URL}/health`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.status === "healthy") {
+            setBackendHealth("healthy");
+          } else {
+            setBackendHealth("error");
+          }
+        })
+        .catch(() => setBackendHealth("error"));
+    };
+
+    checkHealth();
+    timer = setInterval(checkHealth, 5000);
+
+    return () => clearInterval(timer);
   }, []);
 
   // Scroll to bottom when new messages arrive or progress updates

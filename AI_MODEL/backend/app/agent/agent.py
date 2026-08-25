@@ -61,6 +61,29 @@ def _run_export_model(current_model_id: Optional[str], arguments: dict) -> dict[
     return {"tool": "export_model", **result}
 
 
+import re
+
+GREETINGS = {
+    "hi", "hello", "hey", "hi there", "hello there", "good morning",
+    "good afternoon", "good evening", "howdy", "sup", "yo", "help",
+    "who are you", "what can you do", "thanks", "thank you", "bye", "goodbye"
+}
+
+
+def _is_greeting(text: str) -> bool:
+    cleaned = text.strip().lower()
+    words = set(re.findall(r"\b\w+\b", cleaned))
+    if cleaned in GREETINGS or (len(words) <= 3 and any(g in words for g in ["hi", "hello", "hey", "help", "yo", "sup"])):
+        action_keywords = {
+            "create", "make", "generate", "build", "design", "export",
+            "edit", "change", "add", "draw", "table", "chair", "house",
+            "model", "3d", "box", "cube", "car", "wider", "taller"
+        }
+        if not any(w in words for w in action_keywords):
+            return True
+    return False
+
+
 def handle_message(user_message: str, conversation_id: Optional[str] = None) -> ChatResponse:
     """Orchestrates one turn: User -> Agent -> Local LLM -> Tool decision ->
     Tool execution -> Tool result -> LLM -> Final response (Phase 11/12).
@@ -71,6 +94,24 @@ def handle_message(user_message: str, conversation_id: Optional[str] = None) -> 
     llm = get_llm_client()
     convo = conv_state.get_or_create_conversation(conversation_id)
     conv_state.add_message(convo.conversation_id, "user", user_message)
+
+    # Fast-path for greetings & conversational queries (instant reply < 0.05s)
+    if _is_greeting(user_message):
+        reply = (
+            "Hi! I am your Local AI 3D Model Generator.\n\n"
+            "What would you like to create today? Here are some examples you can try:\n"
+            "• *'Create a futuristic black and red gaming chair'*\n"
+            "• *'Create a low-poly wooden dining table'*\n"
+            "• *'Make it wider by 20%'*\n"
+            "• *'Export model as OBJ'*"
+        )
+        conv_state.add_message(convo.conversation_id, "assistant", reply)
+        return ChatResponse(
+            conversation_id=convo.conversation_id,
+            reply=reply,
+            model_id=convo.current_model_id,
+            tool_calls=[],
+        )
 
     try:
         plan = build_plan(llm, user_message, convo.current_model_id)

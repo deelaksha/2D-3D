@@ -60,7 +60,7 @@ class OllamaClient(LLMClient):
 
     def is_available(self) -> bool:
         try:
-            response = requests.get(f"{self.base_url}/api/tags", timeout=5)
+            response = requests.get(f"{self.base_url}/api/tags", timeout=1.5)
             return response.status_code == 200
         except requests.RequestException:
             return False
