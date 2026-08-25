@@ -1,0 +1,2078 @@
+[200~# House Architecture 2D-to-3D Training Data System[in my cuirrent my own 3d]
+
+## Project Goal
+
+Build a completely separate, reusable training-data generation and management system for architectural / house-related 2D-to-3D AI training.
+
+The existing 2D-to-3D application is located at:
+
+`/home/sonic-claude2/mythra/2D-3D`
+
+DO NOT mix the training dataset, dataset-generation scripts, generated images, annotations, meshes, or training checkpoints into that directory.
+
+Create a separate project:
+
+`/home/sonic-claude2/mythra/house-3d-training-data`
+
+The purpose of this project is to generate, organize, validate, version, and eventually fine-tune models using high-quality house/architecture data.
+
+The architecture must be designed so that additional datasets can be added later without changing the existing house dataset.
+
+---
+
+# 1. PRIMARY OBJECTIVE
+
+Build a reusable architecture training-data pipeline capable of producing structured samples for:
+
+```text
+2D Image
+    ↓
+Architectural component understanding
+    ↓
+Semantic component
+    ↓
+Dimensions
+    ↓
+Geometry
+    ↓
+3D mesh
+    ↓
+Position
+    ↓
+Rotation
+    ↓
+Relationships
+    ↓
+Assembly information
+```
+
+The initial dataset should focus on houses and architectural components.
+
+The long-term objective is to train models that can eventually understand:
+
+```text
+2D house image
+        ↓
+identify architectural components
+        ↓
+decompose the building
+        ↓
+estimate dimensions
+        ↓
+generate components
+        ↓
+position components
+        ↓
+assemble components
+        ↓
+generate complete 3D house
+```
+
+---
+
+# 2. CRITICAL DATASET SEPARATION
+
+The dataset project MUST remain independent from:
+
+`/home/sonic-claude2/mythra/2D-3D`
+
+Do not store training data there.
+
+Use:
+
+```text
+/home/sonic-claude2/mythra/house-3d-training-data
+```
+
+as the root directory.
+
+The structure must support future datasets.
+
+Use:
+
+```text
+house-3d-training-data/
+├── datasets/
+│   ├── house/
+│   ├── architecture/
+│   ├── furniture/
+│   ├── vehicles/
+│   ├── mechanical/
+│   └── custom/
+│
+├── generators/
+├── schemas/
+├── validation/
+├── preprocessing/
+├── training/
+├── evaluation/
+├── tools/
+├── configs/
+├── scripts/
+├── docs/
+├── tests/
+└── outputs/
+```
+
+Initially only implement:
+
+```text
+datasets/house/
+```
+
+The other directories should be placeholders for future expansion.
+
+Do NOT generate fake datasets for categories that are not being worked on yet.
+
+---
+
+# 3. HOUSE DATASET STRUCTURE
+
+Create:
+
+```text
+datasets/house/
+├── raw/
+├── generated/
+├── processed/
+├── annotations/
+├── meshes/
+├── renders/
+├── depth/
+├── segmentation/
+├── scenes/
+├── metadata/
+├── train/
+├── validation/
+├── test/
+└── rejected/
+```
+
+Each directory has a clear purpose.
+
+### raw/
+
+Human-collected or externally obtained source data.
+
+Never modify raw data.
+
+### generated/
+
+Synthetic Blender-generated data.
+
+### processed/
+
+Normalized data after preprocessing.
+
+### annotations/
+
+Structured labels and metadata.
+
+### meshes/
+
+Ground-truth 3D geometry.
+
+### renders/
+
+Rendered 2D views.
+
+### depth/
+
+Depth maps.
+
+### segmentation/
+
+Semantic and instance masks.
+
+### scenes/
+
+Complete architectural scene descriptions.
+
+### metadata/
+
+Dataset statistics and indexes.
+
+### train/
+
+Training samples.
+
+### validation/
+
+Validation samples.
+
+### test/
+
+Held-out evaluation samples.
+
+### rejected/
+
+Invalid samples and the reason they were rejected.
+
+---
+
+# 4. HOUSE COMPONENT TAXONOMY
+
+Build the dataset taxonomy carefully.
+
+Do not put everything into one generic "house" class.
+
+Create hierarchical labels.
+
+## Level 1 — Building
+
+```text
+house
+apartment
+villa
+office
+commercial_building
+garage
+warehouse
+```
+
+Initially prioritize:
+
+```text
+house
+villa
+apartment
+```
+
+---
+
+# 5. STRUCTURAL COMPONENTS
+
+Create classes for:
+
+```text
+wall
+floor
+ceiling
+roof
+foundation
+slab
+column
+pillar
+beam
+staircase
+landing
+```
+
+Wall subclasses:
+
+```text
+external_wall
+internal_wall
+partition_wall
+load_bearing_wall
+non_load_bearing_wall
+curved_wall
+```
+
+---
+
+# 6. OPENINGS
+
+Create:
+
+```text
+door
+window
+arch
+doorway
+ventilation_opening
+skylight
+```
+
+Door subclasses:
+
+```text
+single_door
+double_door
+sliding_door
+folding_door
+glass_door
+wood_door
+metal_door
+garage_door
+```
+
+Window subclasses:
+
+```text
+single_window
+double_window
+sliding_window
+casement_window
+bay_window
+arched_window
+fixed_window
+skylight
+```
+
+---
+
+# 7. ARCHITECTURAL COMPONENTS
+
+Create:
+
+```text
+balcony
+railing
+parapet
+cornice
+molding
+trim
+facade
+awning
+canopy
+porch
+veranda
+terrace
+```
+
+---
+
+# 8. INTERIOR COMPONENTS
+
+Create:
+
+```text
+room
+kitchen
+bathroom
+bedroom
+living_room
+dining_room
+hallway
+garage
+storage_room
+```
+
+Interior objects:
+
+```text
+cabinet
+wardrobe
+kitchen_counter
+sink
+toilet
+bathtub
+shower
+bed
+sofa
+chair
+table
+desk
+shelf
+```
+
+These can initially be lower priority than structural components.
+
+---
+
+# 9. BUILDING SYSTEM COMPONENTS
+
+Create:
+
+```text
+electrical_switch
+electrical_socket
+light
+ceiling_fan
+air_conditioner
+pipe
+drain
+water_tank
+radiator
+```
+
+These can be added after the core architectural dataset is working.
+
+---
+
+# 10. MATERIAL DATA
+
+Every applicable component should optionally contain material information.
+
+Examples:
+
+```text
+concrete
+brick
+cement
+plaster
+wood
+glass
+steel
+aluminium
+marble
+granite
+ceramic
+tile
+stone
+```
+
+Material must be metadata.
+
+Do not make material part of the primary component identity.
+
+For example:
+
+```text
+wall
+```
+
+and:
+
+```text
+wall + brick
+wall + concrete
+wall + plaster
+```
+
+should be represented as the same semantic object with different material metadata.
+
+---
+
+# 11. PARAMETRIC BLENDER GENERATOR
+
+Build a Blender-based synthetic data generator.
+
+Blender should be used to create ground-truth architectural scenes.
+
+The generator must create real 3D geometry.
+
+Do not generate fake annotation values.
+
+If Blender generates a wall with:
+
+```text
+width = 4m
+height = 3m
+depth = 0.2m
+```
+
+those exact values must become the ground-truth metadata.
+
+---
+
+# 12. PARAMETRIC WALL GENERATOR
+
+Implement:
+
+```python
+generate_wall(
+    width,
+    height,
+    depth,
+    position,
+    rotation,
+    material
+)
+```
+
+Support:
+
+```text
+straight wall
+curved wall
+external wall
+internal wall
+partition wall
+```
+
+Generate:
+
+```text
+mesh
+dimensions
+bounding box
+transform
+material
+```
+
+---
+
+# 13. PARAMETRIC DOOR GENERATOR
+
+Implement:
+
+```python
+generate_door(
+    width,
+    height,
+    thickness,
+    position,
+    rotation,
+    door_type
+)
+```
+
+Support:
+
+```text
+single
+double
+sliding
+folding
+glass
+wood
+metal
+garage
+```
+
+Include:
+
+```text
+frame
+door_panel
+handle
+hinge metadata
+```
+
+when appropriate.
+
+---
+
+# 14. PARAMETRIC WINDOW GENERATOR
+
+Implement:
+
+```python
+generate_window(
+    width,
+    height,
+    depth,
+    position,
+    rotation,
+    window_type
+)
+```
+
+Include:
+
+```text
+frame
+glass
+sill
+panels
+```
+
+when appropriate.
+
+---
+
+# 15. ROOM GENERATOR
+
+Create a parametric room generator.
+
+Example:
+
+```text
+room
+├── floor
+├── ceiling
+├── walls
+├── doors
+└── windows
+```
+
+Parameters:
+
+```text
+room_width
+room_depth
+room_height
+door_count
+window_count
+wall_thickness
+```
+
+Randomize these within realistic ranges.
+
+---
+
+# 16. HOUSE GENERATOR
+
+Build a house generator that assembles rooms.
+
+Example:
+
+```text
+House
+├── foundation
+├── floor
+├── walls
+├── doors
+├── windows
+├── rooms
+├── staircase
+├── roof
+├── balcony
+└── railing
+```
+
+The generator must save the complete assembly graph.
+
+---
+
+# 17. PARAMETRIC VARIATION
+
+Randomize:
+
+```text
+width
+height
+depth
+wall thickness
+room dimensions
+door dimensions
+window dimensions
+roof angle
+roof type
+floor count
+room count
+number of windows
+number of doors
+balcony size
+staircase dimensions
+```
+
+Use realistic ranges.
+
+Do not generate physically impossible buildings.
+
+---
+
+# 18. HOUSE GENERATION LEVELS
+
+Support multiple generation levels.
+
+## Level 1
+
+Single component:
+
+```text
+wall
+door
+window
+```
+
+## Level 2
+
+Component assembly:
+
+```text
+wall + door
+wall + window
+```
+
+## Level 3
+
+Room:
+
+```text
+floor
+walls
+door
+windows
+ceiling
+```
+
+## Level 4
+
+Multiple rooms:
+
+```text
+living room
+bedroom
+kitchen
+bathroom
+```
+
+## Level 5
+
+Complete house:
+
+```text
+multiple rooms
+multiple floors
+roof
+stairs
+balcony
+```
+
+---
+
+# 19. CAMERA GENERATION
+
+For every 3D scene generate multiple camera views.
+
+Include:
+
+```text
+front
+back
+left
+right
+top
+isometric
+interior
+random perspective
+```
+
+Also randomize:
+
+```text
+camera distance
+focal length
+height
+rotation
+field of view
+```
+
+Store exact camera parameters.
+
+---
+
+# 20. LIGHTING GENERATION
+
+Randomize:
+
+```text
+sun
+area lights
+point lights
+environment lighting
+time of day
+```
+
+But maintain a separate deterministic baseline render.
+
+Generate both:
+
+```text
+canonical_render
+random_render
+```
+
+---
+
+# 21. MATERIAL VARIATION
+
+Create realistic material variations.
+
+For example:
+
+```text
+wall:
+  concrete
+  brick
+  plaster
+  painted
+
+door:
+  wood
+  metal
+  glass
+
+window:
+  clear glass
+  tinted glass
+```
+
+Do not over-randomize materials to the point where the object becomes unrealistic.
+
+---
+
+# 22. OUTPUT DATA FOR EACH SAMPLE
+
+Every generated sample should contain:
+
+```text
+image
+mesh
+depth
+segmentation
+scene.json
+metadata.json
+camera.json
+```
+
+Example:
+
+```text
+sample_000001/
+├── image.png
+├── image_front.png
+├── image_side.png
+├── image_top.png
+├── depth.png
+├── segmentation.png
+├── mesh.glb
+├── mesh.obj
+├── scene.json
+├── metadata.json
+└── camera.json
+```
+
+---
+
+# 23. SCENE.JSON
+
+Use a strict schema.
+
+Example:
+
+```json
+{
+  "scene_id": "house_000001",
+  "scene_type": "house",
+  "units": "meters",
+  "components": [
+    {
+      "id": "wall_001",
+      "type": "wall",
+      "subtype": "external_wall",
+      "dimensions": {
+        "width": 5.0,
+        "height": 3.0,
+        "depth": 0.2
+      },
+      "transform": {
+        "position": [0, 0, 1.5],
+        "rotation": [0, 0, 0]
+      },
+      "material": "concrete"
+    }
+  ],
+  "relationships": []
+}
+```
+
+Use Pydantic or equivalent validation.
+
+---
+
+# 24. ASSEMBLY RELATIONSHIPS
+
+Store relationships explicitly.
+
+Examples:
+
+```text
+door → inserted_into → wall
+window → inserted_into → wall
+roof → mounted_on → wall
+railing → attached_to → balcony
+staircase → connected_to → floor
+```
+
+Do not rely only on coordinates.
+
+---
+
+# 25. ANCHOR POINTS
+
+Every architectural component should expose semantic anchors.
+
+Wall:
+
+```text
+top
+bottom
+left
+right
+center
+```
+
+Door:
+
+```text
+top
+bottom
+left
+right
+hinge_side
+center
+```
+
+Window:
+
+```text
+top
+bottom
+left
+right
+center
+sill
+```
+
+Roof:
+
+```text
+ridge
+eave_left
+eave_right
+center
+```
+
+These anchors will later be used by the 2D→3D assembly system.
+
+---
+
+# 26. SEGMENTATION DATA
+
+Generate semantic segmentation.
+
+Example:
+
+```text
+wall = 1
+door = 2
+window = 3
+floor = 4
+ceiling = 5
+roof = 6
+stairs = 7
+column = 8
+```
+
+Also generate instance segmentation.
+
+For example:
+
+```text
+wall_001
+wall_002
+door_001
+door_002
+window_001
+window_002
+```
+
+---
+
+# 27. DEPTH DATA
+
+Generate accurate depth directly from Blender.
+
+Do not estimate depth for synthetic samples.
+
+Save:
+
+```text
+depth.exr
+```
+
+or another lossless representation.
+
+Store depth metadata:
+
+```text
+near
+far
+camera
+units
+```
+
+---
+
+# 28. MULTI-VIEW DATA
+
+For each scene generate multiple views.
+
+Example:
+
+```text
+sample/
+├── views/
+│   ├── front/
+│   ├── back/
+│   ├── left/
+│   ├── right/
+│   ├── top/
+│   └── random/
+```
+
+Each view should have:
+
+```text
+RGB
+depth
+segmentation
+camera
+```
+
+This will be useful for future multi-view training.
+
+---
+
+# 29. DATASET FORMAT
+
+Create a global index:
+
+```text
+datasets/house/metadata/index.jsonl
+```
+
+Each line represents one training sample.
+
+Example:
+
+```json
+{
+  "id": "house_000001",
+  "image": "...",
+  "mesh": "...",
+  "scene": "...",
+  "depth": "...",
+  "segmentation": "...",
+  "category": "house",
+  "split": "train"
+}
+```
+
+Use relative paths.
+
+Do not hard-code machine-specific absolute paths into dataset annotations.
+
+---
+
+# 30. TRAIN / VALIDATION / TEST
+
+Create deterministic dataset splits.
+
+Recommended starting point:
+
+```text
+80% train
+10% validation
+10% test
+```
+
+However, ensure that nearly identical generated houses do not appear in both training and test.
+
+Split by scene configuration/template where possible.
+
+---
+
+# 31. DATA QUALITY VALIDATION
+
+Every generated sample must be validated automatically.
+
+Check:
+
+```text
+image exists
+mesh exists
+scene.json valid
+dimensions valid
+transforms valid
+camera valid
+depth exists
+segmentation exists
+mesh valid
+no NaN
+no infinite coordinates
+no zero-size geometry
+```
+
+Reject invalid samples.
+
+Move rejected samples to:
+
+```text
+datasets/house/rejected/
+```
+
+with:
+
+```text
+rejection_reason.json
+```
+
+---
+
+# 32. GEOMETRY VALIDATION
+
+Check:
+
+```text
+non-manifold geometry
+self-intersections
+zero-area faces
+duplicate vertices
+invalid normals
+floating components
+unexpected disconnected geometry
+```
+
+Automatically repair when safe.
+
+Otherwise reject.
+
+---
+
+# 33. PHYSICAL PLAUSIBILITY
+
+Add basic architectural constraints.
+
+Examples:
+
+```text
+door height > door width
+window must fit inside wall
+door must not float
+window must intersect wall opening correctly
+floor must support walls
+roof must connect to building
+stairs must connect floors
+```
+
+Do not allow obviously impossible synthetic samples into the training set.
+
+---
+
+# 34. DATA AUGMENTATION
+
+Implement image-level augmentation separately from geometry generation.
+
+Examples:
+
+```text
+brightness
+contrast
+slight blur
+noise
+crop
+perspective
+compression
+```
+
+Do not modify ground-truth geometry incorrectly.
+
+---
+
+# 35. REAL-WORLD DATA IMPORT
+
+The system must allow future real-world datasets.
+
+For example:
+
+```text
+datasets/house/raw/my_custom_dataset/
+```
+
+Users should be able to add:
+
+```text
+images
+meshes
+annotations
+```
+
+without modifying the generator.
+
+Create an import pipeline:
+
+```bash
+python tools/import_dataset.py \
+    --input /path/to/dataset \
+    --name my_custom_dataset
+```
+
+---
+
+# 36. FUTURE DATASET PLUG-IN ARCHITECTURE
+
+The system must NOT assume that all future data is house data.
+
+Create dataset configuration:
+
+```yaml
+dataset:
+  name: house
+  category: architecture
+  version: "1.0"
+```
+
+Future examples:
+
+```yaml
+dataset:
+  name: furniture
+  category: objects
+```
+
+or:
+
+```yaml
+dataset:
+  name: vehicle
+  category: transportation
+```
+
+The common infrastructure should remain reusable.
+
+---
+
+# 37. DATASET VERSIONING
+
+Every dataset must have a version.
+
+Example:
+
+```text
+house-v0.1
+house-v0.2
+house-v1.0
+```
+
+Never silently modify an existing released dataset version.
+
+Create:
+
+```text
+datasets/house/releases/
+```
+
+---
+
+# 38. DATASET STATISTICS
+
+Generate reports:
+
+```text
+total samples
+train samples
+validation samples
+test samples
+component counts
+material counts
+average dimensions
+minimum dimensions
+maximum dimensions
+invalid samples
+rejected samples
+```
+
+Example:
+
+```text
+House Dataset v0.1
+
+Samples: 10000
+Walls: 48000
+Doors: 12000
+Windows: 25000
+Rooms: 10000
+Houses: 10000
+```
+
+---
+
+# 39. INITIAL DATASET TARGET
+
+Do not blindly generate huge amounts of data immediately.
+
+Start with:
+
+```text
+Phase 1: 1,000 samples
+Phase 2: 10,000 samples
+Phase 3: 50,000 samples
+Phase 4: 100,000+ samples
+```
+
+Validate quality at every stage.
+
+A small high-quality dataset is better than millions of bad samples.
+
+---
+
+# 40. INITIAL DATA DISTRIBUTION
+
+For the first 10,000 samples, prioritize:
+
+```text
+20% walls
+15% doors
+15% windows
+10% floors
+10% roofs
+5% stairs
+5% columns
+5% beams
+5% balconies
+10% complete rooms/houses
+```
+
+This is only an initial target.
+
+The generator should remain configurable.
+
+---
+
+# 41. TRAINING DATA FOR QWEN
+
+Eventually generate structured instruction data.
+
+Example:
+
+```json
+{
+  "image": "window_001.png",
+  "instruction": "Identify the architectural component and describe its structure.",
+  "response": {
+    "category": "window",
+    "subtype": "sliding_window",
+    "parts": [
+      "frame",
+      "glass",
+      "sill"
+    ],
+    "dimensions": {
+      "width": 1.2,
+      "height": 1.5
+    }
+  }
+}
+```
+
+Another task:
+
+```json
+{
+  "image": "room_001.png",
+  "instruction": "Identify all architectural components and their relationships.",
+  "response": {
+    "components": [],
+    "relationships": []
+  }
+}
+```
+
+Another:
+
+```json
+{
+  "image": "house_001.png",
+  "instruction": "Decompose this house into semantic components for 3D reconstruction.",
+  "response": {
+    "components": [],
+    "assembly": []
+  }
+}
+```
+
+---
+
+# 42. TRAINING TASKS
+
+Generate several training tasks from the same ground-truth scene.
+
+### Task A
+
+Image → category
+
+### Task B
+
+Image → component list
+
+### Task C
+
+Image → dimensions
+
+### Task D
+
+Image → relationships
+
+### Task E
+
+Image → assembly graph
+
+### Task F
+
+Image → room structure
+
+### Task G
+
+Image → architectural description
+
+### Task H
+
+Image → 3D reconstruction plan
+
+### Task I
+
+Image + scene → detect errors
+
+### Task J
+
+Image + incorrect scene → propose corrections
+
+This makes the dataset much more useful than simple image classification.
+
+---
+
+# 43. FINE-TUNING
+
+Do not fine-tune Qwen immediately.
+
+First:
+
+```text
+generate data
+↓
+validate data
+↓
+inspect samples
+↓
+benchmark base model
+↓
+fine-tune
+↓
+compare against base model
+```
+
+Use LoRA/QLoRA where appropriate.
+
+Keep the base model unchanged.
+
+Store fine-tuning artifacts outside the dataset itself:
+
+```text
+training/
+├── runs/
+├── checkpoints/
+├── logs/
+└── experiments/
+```
+
+---
+
+# 44. DATASET INSPECTION TOOL
+
+Create a simple inspection tool.
+
+Example:
+
+```bash
+python tools/inspect_dataset.py \
+    --dataset house \
+    --sample 20
+```
+
+It should show:
+
+```text
+2D image
+3D preview
+segmentation
+depth
+scene metadata
+dimensions
+components
+relationships
+```
+
+This is important because visual inspection is required to catch bad synthetic data.
+
+---
+
+# 45. DATASET VISUALIZATION
+
+Create contact sheets for:
+
+```text
+walls
+doors
+windows
+rooms
+houses
+roofs
+stairs
+```
+
+This makes it easy to identify generator problems.
+
+---
+
+# 46. TRAINING DATA QUALITY SCORE
+
+Each sample should receive:
+
+```json
+{
+  "geometry_quality": 0.98,
+  "annotation_quality": 1.0,
+  "segmentation_quality": 1.0,
+  "physical_validity": 0.95,
+  "overall_quality": 0.98
+}
+```
+
+Only samples above a configurable threshold should enter training.
+
+---
+
+# 47. HARDWARE DETECTION
+
+Before generating thousands of samples, inspect the machine:
+
+```bash
+nvidia-smi
+free -h
+lscpu
+```
+
+Determine:
+
+```text
+GPU
+VRAM
+RAM
+CPU
+CUDA
+Blender
+Ollama
+```
+
+Optimize Blender rendering accordingly.
+
+Use GPU rendering when available.
+
+---
+
+# 48. PARALLEL DATA GENERATION
+
+The generator should support parallel generation.
+
+Example:
+
+```bash
+python generators/generate_house_dataset.py \
+    --count 10000 \
+    --workers 4
+```
+
+Workers should not corrupt the dataset.
+
+Each worker must generate unique sample IDs.
+
+---
+
+# 49. RESUME SUPPORT
+
+If generation stops at sample 4,732:
+
+```bash
+python generators/generate_house_dataset.py \
+    --count 10000 \
+    --resume
+```
+
+It should continue without regenerating valid existing samples.
+
+---
+
+# 50. DETERMINISTIC GENERATION
+
+Support:
+
+```bash
+--seed 12345
+```
+
+The same seed should produce reproducible configurations when possible.
+
+Store:
+
+```text
+seed
+generator version
+Blender version
+configuration version
+```
+
+in metadata.
+
+---
+
+# 51. PERFORMANCE
+
+Measure:
+
+```text
+samples/hour
+render time
+scene creation time
+mesh generation time
+annotation time
+disk usage
+CPU usage
+GPU usage
+```
+
+Generate a benchmark report.
+
+---
+
+# 52. STORAGE MANAGEMENT
+
+Training datasets can become very large.
+
+Support configurable:
+
+```text
+image resolution
+image format
+depth format
+mesh format
+number of views
+texture resolution
+```
+
+Do not duplicate unnecessary files.
+
+---
+
+# 53. DOCUMENTATION
+
+Create:
+
+```text
+README.md
+ARCHITECTURE.md
+DATASET_SCHEMA.md
+GENERATION.md
+VALIDATION.md
+TRAINING.md
+ADDING_CUSTOM_DATA.md
+TROUBLESHOOTING.md
+```
+
+Most importantly document:
+
+**How to add future data.**
+
+A future user should be able to add:
+
+```text
+my_new_dataset/
+```
+
+without changing the house generator.
+
+---
+
+# 54. FUTURE DATA EXAMPLE
+
+The final system should allow:
+
+```text
+datasets/
+├── house/
+│   ├── raw/
+│   ├── generated/
+│   └── processed/
+│
+├── furniture/
+│   ├── raw/
+│   ├── generated/
+│   └── processed/
+│
+├── vehicles/
+│   ├── raw/
+│   ├── generated/
+│   └── processed/
+│
+└── custom/
+```
+
+House-specific generators remain under:
+
+```text
+generators/house/
+```
+
+Generic dataset tools remain under:
+
+```text
+tools/
+```
+
+This separation is mandatory.
+
+---
+
+# 55. RECOMMENDED FINAL PROJECT STRUCTURE
+
+Build toward:
+
+```text
+/home/sonic-claude2/mythra/
+│
+├── 2D-3D/
+│   └── Existing 2D → 3D application
+│
+└── house-3d-training-data/
+    │
+    ├── datasets/
+    │   ├── house/
+    │   │   ├── raw/
+    │   │   ├── generated/
+    │   │   ├── processed/
+    │   │   ├── annotations/
+    │   │   ├── meshes/
+    │   │   ├── renders/
+    │   │   ├── depth/
+    │   │   ├── segmentation/
+    │   │   ├── scenes/
+    │   │   ├── metadata/
+    │   │   ├── train/
+    │   │   ├── validation/
+    │   │   ├── test/
+    │   │   └── rejected/
+    │   │
+    │   └── custom/
+    │
+    ├── generators/
+    │   └── house/
+    │       ├── wall.py
+    │       ├── door.py
+    │       ├── window.py
+    │       ├── floor.py
+    │       ├── ceiling.py
+    │       ├── roof.py
+    │       ├── staircase.py
+    │       ├── room.py
+    │       ├── house.py
+    │       └── blender/
+    │
+    ├── schemas/
+    │   ├── scene.py
+    │   ├── component.py
+    │   └── dataset.py
+    │
+    ├── validation/
+    │   ├── geometry.py
+    │   ├── annotations.py
+    │   ├── physical.py
+    │   └── dataset.py
+    │
+    ├── preprocessing/
+    │
+    ├── training/
+    │   ├── datasets/
+    │   ├── runs/
+    │   ├── checkpoints/
+    │   └── logs/
+    │
+    ├── evaluation/
+    │
+    ├── tools/
+    │   ├── inspect_dataset.py
+    │   ├── validate_dataset.py
+    │   ├── import_dataset.py
+    │   ├── statistics.py
+    │   └── visualize.py
+    │
+    ├── configs/
+    │
+    ├── scripts/
+    │
+    ├── docs/
+    │
+    ├── tests/
+    │
+    └── outputs/
+```
+
+---
+
+# 56. IMPLEMENTATION PHASES
+
+Implement in this exact order.
+
+## Phase 1 — Project Setup
+
+Create the separate project.
+
+Do not modify:
+
+`/home/sonic-claude2/mythra/2D-3D`
+
+unless explicitly required for integration.
+
+---
+
+## Phase 2 — Schemas
+
+Implement:
+
+```text
+Component
+Scene
+Transform
+Dimensions
+Relationship
+Anchor
+Camera
+DatasetSample
+```
+
+with strict validation.
+
+---
+
+## Phase 3 — First Components
+
+Implement:
+
+```text
+wall
+door
+window
+floor
+ceiling
+```
+
+Do not immediately build every possible component.
+
+---
+
+## Phase 4 — Blender Scene Generation
+
+Generate complete scenes containing:
+
+```text
+wall
+door
+window
+floor
+ceiling
+```
+
+---
+
+## Phase 5 — Ground Truth
+
+Automatically generate:
+
+```text
+mesh
+RGB
+depth
+segmentation
+camera
+scene.json
+metadata.json
+```
+
+---
+
+## Phase 6 — Validation
+
+Reject bad samples automatically.
+
+---
+
+## Phase 7 — Dataset Generation
+
+Generate:
+
+```text
+1,000 samples
+```
+
+Stop and inspect them.
+
+Do not immediately generate 100,000 samples.
+
+---
+
+## Phase 8 — Improve Generator
+
+Fix:
+
+```text
+geometry
+camera
+materials
+dimensions
+assembly
+segmentation
+```
+
+---
+
+## Phase 9 — Scale
+
+Generate:
+
+```text
+10,000 samples
+```
+
+---
+
+## Phase 10 — Training Format
+
+Convert validated data into Qwen-compatible instruction datasets.
+
+---
+
+## Phase 11 — Baseline Evaluation
+
+Evaluate the existing Qwen model before fine-tuning.
+
+Record:
+
+```text
+component identification accuracy
+dimension accuracy
+relationship accuracy
+assembly reasoning accuracy
+```
+
+---
+
+## Phase 12 — Fine-Tuning
+
+Fine-tune using LoRA/QLoRA only after the dataset is validated.
+
+---
+
+## Phase 13 — Compare
+
+Compare:
+
+```text
+BASE QWEN
+vs
+FINE-TUNED QWEN
+```
+
+Do not claim improvement without metrics.
+
+---
+
+# 57. FIRST MILESTONE
+
+The first milestone is NOT fine-tuning.
+
+The first milestone is:
+
+```text
+Generate one valid architectural scene
+        ↓
+Render image
+        ↓
+Generate segmentation
+        ↓
+Generate depth
+        ↓
+Generate ground-truth mesh
+        ↓
+Generate scene.json
+        ↓
+Validate everything
+        ↓
+Save one complete training sample
+```
+
+Then scale to:
+
+```text
+10 samples
+100 samples
+1,000 samples
+10,000 samples
+```
+
+---
+
+# 58. FINAL RULE
+
+The most important design principle is:
+
+**DATA FIRST. MODEL SECOND.**
+
+Do not try to solve poor 3D generation by immediately fine-tuning Qwen.
+
+First create a high-quality dataset containing:
+
+```text
+2D images
++
+3D geometry
++
+semantic parts
++
+dimensions
++
+transforms
++
+relationships
++
+anchors
++
+depth
++
+segmentation
++
+camera information
+```
+
+Then use that dataset to train the reasoning capabilities required for the future 2D→3D system.
+
+---
+
+# 59. FINAL INSTRUCTION TO THE CODING AGENT
+
+Start by inspecting the machine and existing directory:
+
+```text
+/home/sonic-claude2/mythra/2D-3D
+```
+
+Do not modify it initially.
+
+Create:
+
+```text
+/home/sonic-claude2/mythra/house-3d-training-data
+```
+
+Then implement Phase 1.
+
+Before generating large amounts of data, make the system successfully generate and validate **one complete house training sample**.
+
+After that, generate a small test dataset.
+
+Inspect the generated results.
+
+Fix all obvious quality issues.
+
+Then scale gradually.
+
+At every phase:
+
+```text
+implement
+→ test
+→ generate sample
+→ inspect
+→ validate
+→ measure
+→ improve
+```
+
+Do not generate huge quantities of low-quality data.
+
+The final system must be reusable, versioned, extensible, and completely separated from the existing `/home/sonic-claude2/mythra/2D-3D` application so that future datasets can be added independently.
+
+
