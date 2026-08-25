@@ -1,0 +1,61 @@
+# Portable Blender install (downloaded, not vendored)
+.blender/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Generated dataset content (large binary/generated artifacts; index + code are tracked, bulk data is not)
+datasets/house/raw/*
+!datasets/house/raw/.gitkeep
+datasets/house/generated/*
+!datasets/house/generated/.gitkeep
+datasets/house/processed/*
+!datasets/house/processed/.gitkeep
+datasets/house/renders/*
+!datasets/house/renders/.gitkeep
+datasets/house/depth/*
+!datasets/house/depth/.gitkeep
+datasets/house/segmentation/*
+!datasets/house/segmentation/.gitkeep
+datasets/house/meshes/*
+!datasets/house/meshes/.gitkeep
+datasets/house/scenes/*
+!datasets/house/scenes/.gitkeep
+datasets/house/annotations/*
+!datasets/house/annotations/.gitkeep
+datasets/house/train/*
+!datasets/house/train/.gitkeep
+datasets/house/validation/*
+!datasets/house/validation/.gitkeep
+datasets/house/test/*
+!datasets/house/test/.gitkeep
+datasets/house/rejected/*
+!datasets/house/rejected/.gitkeep
+datasets/house/releases/*
+!datasets/house/releases/.gitkeep
+
+# Metadata index files ARE tracked in small samples, but keep this open for large runs:
+# (index.jsonl itself is intentionally NOT ignored — see datasets/house/metadata/)
+
+# Training artifacts
+training/runs/*
+!training/runs/.gitkeep
+training/checkpoints/*
+!training/checkpoints/.gitkeep
+training/logs/*
+!training/logs/.gitkeep
+training/experiments/*
+!training/experiments/.gitkeep
+training/datasets/*
+!training/datasets/.gitkeep
+
+outputs/*
+!outputs/.gitkeep
+
+# OS
+.DS_Store
