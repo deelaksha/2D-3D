@@ -28,6 +28,7 @@ import Inspector from "./ui/panels/Inspector";
 import CanvasBoard from "./ui/board/CanvasBoard";
 import CommandPalette from "./ui/palette/CommandPalette";
 import JointsPanel from "./ui/panels/JointsPanel";
+import AiAssistantPanel from "./ui/panels/AiAssistantPanel";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -111,6 +112,12 @@ function RightColumn(props: { onResizeStart: (event: PointerEvent<HTMLDivElement
       />
       <div className="wk-tabs">
         <button
+          className={"wk-tab" + (ui.panelTab === "ai" ? " wk-tab--active" : "")}
+          onClick={() => store.setUI({ panelTab: "ai" })}
+        >
+          🤖 AI Generator
+        </button>
+        <button
           className={"wk-tab" + (ui.panelTab === "parts" ? " wk-tab--active" : "")}
           onClick={() => store.setUI({ panelTab: "parts" })}
         >
@@ -130,7 +137,15 @@ function RightColumn(props: { onResizeStart: (event: PointerEvent<HTMLDivElement
         </button>
       </div>
       <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-        {ui.panelTab === "layers" ? <LayersPanel /> : ui.panelTab === "joints" ? <JointsPanel /> : <PartsPanel />}
+        {ui.panelTab === "ai" ? (
+          <AiAssistantPanel />
+        ) : ui.panelTab === "layers" ? (
+          <LayersPanel />
+        ) : ui.panelTab === "joints" ? (
+          <JointsPanel />
+        ) : (
+          <PartsPanel />
+        )}
       </div>
       <div style={{ borderTop: "1px solid var(--wk-border)", maxHeight: "48%", overflow: "auto" }}>
         <Inspector />

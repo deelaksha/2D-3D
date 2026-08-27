@@ -181,6 +181,39 @@ def _build_parts(obj_name: str, colors: list[str], materials: list[str], scale: 
         parts.append(_create_box(0, 0.2 * scale, 0, 0.25 * scale, 0.04 * scale, 0.06 * scale, handle_color, "Guard"))
         parts.append(_create_cylinder(0, 0.05 * scale, 0, 0.03 * scale, 0.25 * scale, handle_color, name="Handle"))
 
+    elif any(w in name for w in ["house", "building", "home", "room", "cottage", "architecture"]):
+        wall_color = c1
+        roof_color = _color_for("red") if "red" in colors or "roof" in name else c2
+        floor_color = _color_for("wood") if "wood" in materials else COLOR_PALETTE["default"]
+        door_color = _color_for("wood")
+        window_color = _color_for("blue")
+
+        # 1. Floor & Foundation
+        parts.append(_create_box(0, 0.05 * scale, 0, 1.5 * scale, 0.1 * scale, 1.5 * scale, floor_color, "Floor"))
+
+        # 2. Walls
+        # Back wall (-Z)
+        parts.append(_create_box(0, 0.55 * scale, -0.68 * scale, 1.4 * scale, 0.9 * scale, 0.08 * scale, wall_color, "Wall_Back"))
+        # Left wall (-X)
+        parts.append(_create_box(-0.68 * scale, 0.55 * scale, 0, 0.08 * scale, 0.9 * scale, 1.4 * scale, wall_color, "Wall_Left"))
+        # Right wall (+X)
+        parts.append(_create_box(0.68 * scale, 0.55 * scale, 0, 0.08 * scale, 0.9 * scale, 1.4 * scale, wall_color, "Wall_Right"))
+        # Front wall right (+Z)
+        parts.append(_create_box(0.35 * scale, 0.55 * scale, 0.68 * scale, 0.7 * scale, 0.9 * scale, 0.08 * scale, wall_color, "Wall_Front_R"))
+        # Front wall left (+Z)
+        parts.append(_create_box(-0.45 * scale, 0.55 * scale, 0.68 * scale, 0.4 * scale, 0.9 * scale, 0.08 * scale, wall_color, "Wall_Front_L"))
+        # Wall over door
+        parts.append(_create_box(-0.1 * scale, 0.85 * scale, 0.68 * scale, 0.3 * scale, 0.3 * scale, 0.08 * scale, wall_color, "Wall_Over_Door"))
+
+        # 3. Door & Windows
+        parts.append(_create_box(-0.1 * scale, 0.38 * scale, 0.68 * scale, 0.26 * scale, 0.6 * scale, 0.06 * scale, door_color, "Door"))
+        parts.append(_create_box(-0.35 * scale, 0.65 * scale, -0.68 * scale, 0.35 * scale, 0.35 * scale, 0.06 * scale, window_color, "Window_Back"))
+        parts.append(_create_box(0.68 * scale, 0.65 * scale, 0, 0.06 * scale, 0.35 * scale, 0.4 * scale, window_color, "Window_Right"))
+
+        # 4. Roof & Gable
+        parts.append(_create_box(0, 1.05 * scale, 0, 1.6 * scale, 0.1 * scale, 1.6 * scale, roof_color, "Roof_Base"))
+        parts.append(_create_box(0, 1.22 * scale, 0, 1.3 * scale, 0.25 * scale, 1.3 * scale, roof_color, "Roof_Peak"))
+
     else:
         # Default compound object
         main_color = c1

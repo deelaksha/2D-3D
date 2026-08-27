@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # LLM
     llm_provider: str = "ollama"
     llm_model: str = "qwen3:8b"
+    llm_vision_model: str = "qwen2.5vl:7b"
     llm_base_url: str = "http://localhost:11434"
     llm_timeout_seconds: int = 300
 

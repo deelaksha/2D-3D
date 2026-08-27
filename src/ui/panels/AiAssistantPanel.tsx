@@ -65,7 +65,7 @@ export default function AiAssistantPanel() {
 
     const startTime = Date.now();
     const hasImage = Boolean(selectedImageBase64);
-
+    
     const stages = hasImage
       ? [
           { threshold: 0, text: "👁️ qwen2.5vl:7b reading & analyzing uploaded image..." },

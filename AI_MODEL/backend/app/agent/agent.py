@@ -84,19 +84,37 @@ def _is_greeting(text: str) -> bool:
     return False
 
 
-def handle_message(user_message: str, conversation_id: Optional[str] = None) -> ChatResponse:
-    """Orchestrates one turn: User -> Agent -> Local LLM -> Tool decision ->
-    Tool execution -> Tool result -> LLM -> Final response (Phase 11/12).
-    Maintains conversation id, current model id, and history across turns
-    (Phase 13). Tool failures are caught per-step so one failing step never
-    crashes the conversation (Rule 2)."""
+def handle_message(
+    user_message: str,
+    conversation_id: Optional[str] = None,
+    image_base64: Optional[str] = None,
+) -> ChatResponse:
+    """Orchestrates one turn: User -> (Qwen2.5-VL Vision) -> Agent -> Local LLM -> Tool decision ->
+    Tool execution -> Tool result -> LLM -> Final response.
+    Maintains conversation id, current model id, and history across turns."""
 
     llm = get_llm_client()
     convo = conv_state.get_or_create_conversation(conversation_id)
     conv_state.add_message(convo.conversation_id, "user", user_message)
 
-    # Fast-path for greetings & conversational queries (instant reply < 0.05s)
-    if _is_greeting(user_message):
+    vision_analysis: Optional[str] = None
+    effective_message = user_message
+
+    # Step 1: Vision Model Reading (qwen2.5vl:7b) if image is uploaded
+    if image_base64:
+        try:
+            vision_resp = llm.generate_vision(user_message, image_base64)
+            vision_analysis = vision_resp.text
+            effective_message = (
+                f"Image Visual Features (Analyzed by Qwen2.5-VL): {vision_analysis}\n"
+                f"User Instruction: {user_message}"
+            )
+        except Exception as exc:
+            vision_analysis = f"Vision model reading error: {exc}"
+            effective_message = user_message
+
+    # Fast-path for greetings & conversational queries (instant reply < 0.05s) when no image is provided
+    if not image_base64 and _is_greeting(user_message):
         reply = (
             "Hi! I am your Local AI 3D Model Generator.\n\n"
             "What would you like to create today? Here are some examples you can try:\n"
@@ -114,13 +132,14 @@ def handle_message(user_message: str, conversation_id: Optional[str] = None) -> 
         )
 
     try:
-        plan = build_plan(llm, user_message, convo.current_model_id)
+        plan = build_plan(llm, effective_message, convo.current_model_id)
     except PlanningError as exc:
         reply = f"I couldn't understand that request: {exc}"
         conv_state.add_message(convo.conversation_id, "assistant", reply)
         return ChatResponse(
             conversation_id=convo.conversation_id,
             reply=reply,
+            vision_analysis=vision_analysis,
             model_id=convo.current_model_id,
             tool_calls=[],
         )
@@ -131,7 +150,7 @@ def handle_message(user_message: str, conversation_id: Optional[str] = None) -> 
     for step in plan.steps:
         try:
             if step.tool == ToolName.generate_3d:
-                result = _run_generate_3d(user_message, llm)
+                result = _run_generate_3d(effective_message, llm)
                 current_model_id = result["model_id"]
                 conv_state.set_current_model(convo.conversation_id, current_model_id)
             elif step.tool == ToolName.edit_model:
@@ -143,9 +162,6 @@ def handle_message(user_message: str, conversation_id: Optional[str] = None) -> 
             elif step.tool == ToolName.export_model:
                 result = _run_export_model(current_model_id, step.arguments)
             else:
-                # Unreachable: ToolName is a closed enum validated by
-                # pydantic in build_plan(), so an unregistered tool name
-                # can never reach here.
                 raise AgentError(f"tool not registered: {step.tool}")
         except Exception as exc:  # a single failing tool must not crash the turn
             result = {"tool": step.tool.value, "success": False, "error": str(exc)}
@@ -157,6 +173,7 @@ def handle_message(user_message: str, conversation_id: Optional[str] = None) -> 
     return ChatResponse(
         conversation_id=convo.conversation_id,
         reply=reply,
+        vision_analysis=vision_analysis,
         model_id=current_model_id,
         tool_calls=plan.steps,
     )

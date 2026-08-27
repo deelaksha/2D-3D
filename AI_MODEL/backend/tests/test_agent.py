@@ -18,6 +18,13 @@ class _ScriptedLLM:
         text = self._script.pop(0)
         return LLMResponse(text=text, model="scripted", raw={})
 
+    def generate_vision(self, prompt, image_base64, system=None):
+        return LLMResponse(
+            text="[Qwen2.5-VL Reading]: Detected red wooden armchair with curved legs",
+            model="qwen2.5vl:7b",
+            raw={},
+        )
+
     def is_available(self):
         return True
 
@@ -94,3 +101,27 @@ def test_plan_rejects_unregistered_tool_and_fails_gracefully(monkeypatch):
 
     assert "couldn't understand" in response.reply.lower()
     assert response.tool_calls == []
+
+
+def test_vision_image_processing_flow(monkeypatch):
+    plan = json.dumps({"steps": [{"tool": "generate_3d", "arguments": {}}], "reasoning": "generate from image visual analysis"})
+    spec = json.dumps(
+        {
+            "object": "armchair",
+            "style": "curved",
+            "materials": ["wood"],
+            "colors": ["red"],
+            "parts": ["seat", "backrest", "legs"],
+            "complexity": "medium",
+        }
+    )
+    summary = "Generated 3D armchair model from Qwen2.5-VL image analysis."
+    monkeypatch.setattr(agent_module, "get_llm_client", lambda: _ScriptedLLM([plan, spec, summary]))
+
+    fake_image_b64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    response = handle_message("Build this 3D model", image_base64=fake_image_b64)
+
+    assert response.vision_analysis is not None
+    assert "Qwen2.5-VL" in response.vision_analysis
+    assert response.model_id is not None
+    assert response.reply == summary

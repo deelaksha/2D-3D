@@ -36,6 +36,15 @@ class LLMClient(ABC):
         ...
 
     @abstractmethod
+    def generate_vision(
+        self,
+        prompt: str,
+        image_base64: str,
+        system: Optional[str] = None,
+    ) -> LLMResponse:
+        ...
+
+    @abstractmethod
     def is_available(self) -> bool:
         ...
 
@@ -45,17 +54,19 @@ class OllamaClient(LLMClient):
 
     Architecture: Python -> OllamaClient -> Ollama HTTP API -> local model.
     The model name is never hard-coded elsewhere -- it comes from
-    LLM_MODEL (see docs/local-llm.md)."""
+    LLM_MODEL and LLM_VISION_MODEL (see docs/local-llm.md)."""
 
     def __init__(
         self,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
+        vision_model: Optional[str] = None,
         timeout: Optional[int] = None,
     ):
         settings = get_settings()
         self.base_url = (base_url or settings.llm_base_url).rstrip("/")
         self.model = model or settings.llm_model
+        self.vision_model = vision_model or settings.llm_vision_model
         self.timeout = timeout or settings.llm_timeout_seconds
 
     def is_available(self) -> bool:
@@ -89,6 +100,37 @@ class OllamaClient(LLMClient):
             raise LLMError(f"empty response from model {self.model!r}")
         return LLMResponse(text=text, model=self.model, raw=data)
 
+    def generate_vision(
+        self,
+        prompt: str,
+        image_base64: str,
+        system: Optional[str] = None,
+    ) -> LLMResponse:
+        # Strip data URL prefix if provided (e.g. data:image/png;base64,...)
+        clean_base64 = image_base64.split(",")[-1] if "," in image_base64 else image_base64
+        payload = {
+            "model": self.vision_model,
+            "prompt": prompt or "Analyze this image and describe the object, parts, materials, colors, shape, and structure in detail for 3D modeling.",
+            "images": [clean_base64],
+            "stream": False,
+        }
+        if system:
+            payload["system"] = system
+
+        try:
+            response = requests.post(f"{self.base_url}/api/generate", json=payload, timeout=self.timeout)
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            # Fall back gracefully if vision model isn't pulled yet in local Ollama daemon
+            logger.warning("Failed to reach vision model %s on Ollama: %s", self.vision_model, exc)
+            raise LLMError(f"failed to reach Ollama vision model {self.vision_model!r}: {exc}") from exc
+
+        data = response.json()
+        text = data.get("response", "")
+        if not text:
+            raise LLMError(f"empty response from vision model {self.vision_model!r}")
+        return LLMResponse(text=text, model=self.vision_model, raw=data)
+
 
 import json
 import logging
@@ -105,6 +147,28 @@ class MockLLMClient(LLMClient):
 
     def is_available(self) -> bool:
         return True
+
+    def generate_vision(
+        self,
+        prompt: str,
+        image_base64: str,
+        system: Optional[str] = None,
+    ) -> LLMResponse:
+        prompt_lower = prompt.lower()
+        if "house" in prompt_lower or "building" in prompt_lower:
+            obj_desc = "architectural wooden house with pitched roof, front entry door, side windows, and timber plank exterior"
+        elif "chair" in prompt_lower:
+            obj_desc = "modern wooden ergonomic chair featuring a curved backrest, padded seat cushion, four tapered legs, and side armrests"
+        elif "table" in prompt_lower or "desk" in prompt_lower:
+            obj_desc = "wooden dining table with rectangular top plate, rounded edges, four sturdy support legs, and natural wood grain finish"
+        else:
+            obj_desc = "custom 3D wooden construction object with geometric panels, interlocking joints, and smooth surface bevels"
+
+        analysis = (
+            f"[Qwen2.5-VL Vision Reading]: Analyzed uploaded image. Detected object structure: {obj_desc}. "
+            f"Extracted design specs: primary material wood/plastic, color accents red/black/natural, modular assembly design."
+        )
+        return LLMResponse(text=analysis, model="qwen2.5vl:7b-mock", raw={})
 
     def generate(
         self,
@@ -155,9 +219,23 @@ class MockLLMClient(LLMClient):
             color_candidates = ["red", "green", "blue", "black", "white", "yellow", "purple", "orange", "brown", "gold", "silver", "pink", "cyan"]
             extracted_colors = [c for c in color_candidates if c in prompt_lower] or ["red"]
 
-            obj = "rounded_square" if any(w in prompt_lower for w in ["square", "cube", "box"]) else ("chair" if "chair" in prompt_lower else "table" if "table" in prompt_lower else "custom_3d_mesh")
-            style = "curved" if any(w in prompt_lower for w in ["curv", "round", "smooth"]) else ("futuristic" if "futuristic" in prompt_lower else "standard")
-            parts = ["curved_bevel_edges", "top_face", "side_panel"] if "curv" in prompt_lower or "square" in prompt_lower else ["seat", "backrest", "legs"] if "chair" in prompt_lower else ["body", "base"]
+            if any(w in prompt_lower for w in ["house", "building", "home", "room", "cottage"]):
+                obj = "house"
+                parts = ["floor", "walls", "door", "windows", "roof"]
+            elif any(w in prompt_lower for w in ["square", "cube", "box"]):
+                obj = "rounded_square"
+                parts = ["curved_bevel_edges", "top_face", "side_panel"]
+            elif "chair" in prompt_lower:
+                obj = "chair"
+                parts = ["seat", "backrest", "legs", "armrests"]
+            elif "table" in prompt_lower or "desk" in prompt_lower:
+                obj = "table"
+                parts = ["tabletop", "legs"]
+            else:
+                obj = "custom_3d_mesh"
+                parts = ["body", "base"]
+
+            style = "architectural" if obj == "house" else ("curved" if any(w in prompt_lower for w in ["curv", "round", "smooth"]) else ("futuristic" if "futuristic" in prompt_lower else "standard"))
 
             spec_data = {
                 "object": obj,
