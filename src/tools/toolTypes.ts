@@ -21,7 +21,6 @@ export type ToolCategory =
   | "transform"
   | "measure"
   | "layout"
-  | "material"
   | "assembly"
   | "edit"
   | "view";
@@ -34,10 +33,9 @@ export const CATEGORY_META: Record<ToolCategory, { label: string; icon: string; 
   transform: { label: "Transform", icon: "✥", order: 4 },
   measure: { label: "Measure", icon: "📏", order: 5 },
   layout: { label: "Layout", icon: "▦", order: 6 },
-  material: { label: "Material", icon: "🪵", order: 7 },
-  assembly: { label: "Assembly", icon: "🧩", order: 8 },
-  edit: { label: "Edit", icon: "✎", order: 9 },
-  view: { label: "View", icon: "◉", order: 10 },
+  assembly: { label: "Assembly", icon: "🧩", order: 7 },
+  edit: { label: "Edit", icon: "✎", order: 8 },
+  view: { label: "View", icon: "◉", order: 9 },
 };
 
 /** How the canvas should interpret selecting this tool. */
@@ -87,6 +85,10 @@ export interface ToolDefinition {
   kind: ToolKind;
   /** For kind "draw": the shape this tool draws. */
   createsShape?: ShapeKind;
+  /** For kind "draw" + createsShape "polygon": click-by-click point tracing
+   * (arbitrary vertex count) instead of a single-drag bounding box. Produces
+   * a shape with explicit `nodes`, so the outline is exact, not a preset. */
+  freeform?: boolean;
   /** For kind "connector": the connector type this tool places. */
   createsConnector?: ConnectorType;
   /** For kind "transform": the transform gesture. */

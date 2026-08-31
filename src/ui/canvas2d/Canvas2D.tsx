@@ -11,10 +11,11 @@
  * fixed-size overlays (connectors, handles, dimensions) are drawn in screen
  * space so they stay crisp at any zoom.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent } from "react";
 import { store, useProject, useUI } from "@/core/store/store";
 import {
+  boundsOfPoints,
   connectorWorld,
   connectorWorldOrientation,
   dir,
@@ -51,6 +52,7 @@ import {
 } from "@/core/store/actions";
 import { registry } from "@/tools/registry";
 import { connectorRole, defaultRole } from "@/core/connectors/feature";
+import { connectorStatuses } from "@/core/assembly/validate";
 import type {
   Bounds,
   Connector,
@@ -151,6 +153,11 @@ type DragState =
   | { mode: "marquee"; start: Vec2; additive: boolean }
   | null;
 
+/** Screen px within which a freeform click on/near the first point closes the loop. */
+const FREEFORM_CLOSE_PX = 10;
+/** Minimum bounding extent (mm) a finished freeform outline must span. */
+const MIN_FREEFORM_MM = 2;
+
 /* ------------------------------------------------------------------ */
 /* Pure helpers                                                        */
 /* ------------------------------------------------------------------ */
@@ -182,6 +189,10 @@ export default function Canvas2D(): JSX.Element {
   const activePart = ui.activePartId
     ? project.parts.find((part) => part.id === ui.activePartId)
     : undefined;
+  const unmatchedConnectorIds = useMemo(
+    () => new Set(connectorStatuses(project).filter((s) => s.state === "unmatched").map((s) => s.connectorId)),
+    [project]
+  );
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -192,11 +203,42 @@ export default function Canvas2D(): JSX.Element {
   const [preview, setPreview] = useState<DrawPreview | null>(null);
   /** In-progress marquee rectangle, in world coordinates (null when idle). */
   const [marquee, setMarquee] = useState<{ a: Vec2; b: Vec2 } | null>(null);
+  /** In-progress freeform (click-by-click) outline, in world coordinates. */
+  const [freeformPts, setFreeformPts] = useState<Vec2[]>([]);
+  const [freeformCursor, setFreeformCursor] = useState<Vec2 | null>(null);
 
   const cam = ui.camera2d;
   const zoom = cam.zoom || 1;
   const cx = size.w / 2;
   const cy = size.h / 2;
+
+  /* ---- cancel an in-progress freeform outline if the tool changes ---- */
+  useEffect(() => {
+    const tool = registry.get(ui.activeToolId);
+    if (!(tool?.kind === "draw" && tool.freeform)) {
+      setFreeformPts([]);
+      setFreeformCursor(null);
+    }
+  }, [ui.activeToolId]);
+
+  /* ---- freeform outline: Enter finishes, Escape cancels ---- */
+  useEffect(() => {
+    if (freeformPts.length === 0) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target)) return;
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finishFreeformPoints(freeformPts);
+      } else if (e.key === "Escape") {
+        setFreeformPts([]);
+        setFreeformCursor(null);
+        store.status("Custom connector outline cancelled", "info");
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [freeformPts]);
 
   /* ---- responsive sizing ---- */
   useEffect(() => {
@@ -429,6 +471,25 @@ export default function Canvas2D(): JSX.Element {
 
     const tool = registry.get(store.getState().ui.activeToolId);
 
+    if (tool?.kind === "draw" && tool.freeform) {
+      const s = snapPoint(world);
+      if (freeformPts.length >= 3) {
+        const firstScreen = worldToScreen(freeformPts[0]);
+        const clickScreen = worldToScreen(s);
+        if (Math.hypot(firstScreen.x - clickScreen.x, firstScreen.y - clickScreen.y) <= FREEFORM_CLOSE_PX) {
+          // Clicked back on the start point — close the loop, don't add it again.
+          finishFreeformPoints(freeformPts);
+          return;
+        }
+      }
+      if (freeformPts.length === 0) {
+        store.status("Click to add points · click the start point (or double-click, or Enter) to finish · Escape to cancel", "info");
+      }
+      setFreeformPts([...freeformPts, s]);
+      setFreeformCursor(s);
+      return;
+    }
+
     if (tool?.kind === "draw" && tool.createsShape) {
       dragRef.current = { mode: "draw", start: snapPoint(world) };
       const s = snapPoint(world);
@@ -503,6 +564,9 @@ export default function Canvas2D(): JSX.Element {
   };
 
   const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (freeformPts.length > 0) {
+      setFreeformCursor(snapPoint(clientToWorld(e.clientX, e.clientY)));
+    }
     const drag = dragRef.current;
     if (!drag) return;
     const world = clientToWorld(e.clientX, e.clientY);
@@ -737,9 +801,58 @@ export default function Canvas2D(): JSX.Element {
     );
   };
 
+  // Hoisted (function declaration, not const) so the Enter/Escape key effect
+  // above can call it regardless of source order — it only reads `pts` and
+  // store.getState(), so it never goes stale across renders.
+  function finishFreeformPoints(rawPts: Vec2[]) {
+    setFreeformPts([]);
+    setFreeformCursor(null);
+    // A double-click finish fires two clicks at the same spot first (adding a
+    // duplicate point) before the dblclick event lands — drop that duplicate.
+    const pts = rawPts.filter(
+      (p, i) => i === 0 || Math.hypot(p.x - rawPts[i - 1].x, p.y - rawPts[i - 1].y) > 1e-6,
+    );
+    if (pts.length < 3) {
+      store.status("Click at least 3 points to close a custom outline (Escape to cancel)", "info");
+      return;
+    }
+    const b = boundsOfPoints(pts);
+    const w = b.maxX - b.minX;
+    const h = b.maxY - b.minY;
+    if (w < MIN_FREEFORM_MM && h < MIN_FREEFORM_MM) {
+      store.status("Outline is too small to use — try spacing the points out more", "info");
+      return;
+    }
+    // The new part sits at identity transform, so shape-local == world here —
+    // the polygon's `nodes` are kept exactly as clicked (no simplification).
+    const shape = makeShape("polygon", {
+      x: b.minX,
+      y: b.minY,
+      width: Math.max(1, w),
+      height: Math.max(1, h),
+      nodes: pts.map((p) => ({ x: p.x, y: p.y })),
+    });
+    store.beginGesture();
+    const id = createPart("Custom");
+    setPartShape(id, shape);
+    store.endGesture("Draw custom connector");
+    selectOne(id);
+    setActiveTool("transform.move");
+    store.status(
+      `Drew custom outline (${pts.length} points) — Union/Subtract it into a part, then mark it as a connector or receiver from the Joints panel`,
+      "ok",
+    );
+  }
+
   const onContextMenu = (e: ReactMouseEvent) => {
     // Avoid the browser menu interfering with middle/right interactions.
     e.preventDefault();
+  };
+
+  // Double-click closes an in-progress freeform outline (alternative to
+  // clicking back on the start point or pressing Enter).
+  const onDoubleClick = () => {
+    if (freeformPts.length >= 3) finishFreeformPoints(freeformPts);
   };
 
   /* ------------------------------------------------------------------ */
@@ -771,6 +884,7 @@ export default function Canvas2D(): JSX.Element {
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerCancel}
           onContextMenu={onContextMenu}
+          onDoubleClick={onDoubleClick}
         >
           {/* ---- world-space geometry ---- */}
           <g transform={worldTransform}>
@@ -814,6 +928,46 @@ export default function Canvas2D(): JSX.Element {
                   />
                 );
               })()}
+
+            {/* live freeform outline — click-by-click custom connector geometry */}
+            {freeformPts.length > 0 &&
+              (() => {
+                const pts = freeformCursor ? [...freeformPts, freeformCursor] : freeformPts;
+                const d = "M " + pts.map((p) => `${p.x} ${p.y}`).join(" L ");
+                const nearClose =
+                  freeformPts.length >= 3 &&
+                  freeformCursor &&
+                  (() => {
+                    const a = worldToScreen(freeformPts[0]);
+                    const b = worldToScreen(freeformCursor);
+                    return Math.hypot(a.x - b.x, a.y - b.y) <= FREEFORM_CLOSE_PX;
+                  })();
+                return (
+                  <g pointerEvents="none">
+                    <path
+                      d={d}
+                      fill="var(--wk-accent)"
+                      fillOpacity={freeformPts.length >= 3 ? 0.1 : 0}
+                      stroke="var(--wk-accent)"
+                      strokeWidth={1.5}
+                      strokeDasharray="5 4"
+                      strokeLinejoin="round"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    {freeformPts.map((p, i) => (
+                      <circle
+                        key={i}
+                        cx={p.x}
+                        cy={p.y}
+                        r={(i === 0 && nearClose ? 6 : 3.5) / zoom}
+                        fill={i === 0 && nearClose ? "#22c55e" : "var(--wk-accent)"}
+                        stroke="#fff"
+                        strokeWidth={1 / zoom}
+                      />
+                    ))}
+                  </g>
+                );
+              })()}
           </g>
 
           {/* ---- screen-space overlays (fixed pixel sizes) ---- */}
@@ -845,6 +999,7 @@ export default function Canvas2D(): JSX.Element {
                   worldToScreen={worldToScreen}
                   hovered={ui.hoverConnectorId === c.id}
                   selected={ui.selectedConnectorId === c.id}
+                  unmatched={unmatchedConnectorIds.has(c.id)}
                   showLabel={ui.showConnectorLabels || ui.selection.includes(part.id) || ui.hoverConnectorId === c.id || ui.selectedConnectorId === c.id}
                 />
               )),
@@ -1253,9 +1408,10 @@ function ConnectorGlyph(props: {
   worldToScreen: (p: Vec2) => Vec2;
   hovered: boolean;
   selected: boolean;
+  unmatched?: boolean;
   showLabel: boolean;
 }): JSX.Element {
-  const { part, connector, worldToScreen, hovered, selected, showLabel } = props;
+  const { part, connector, worldToScreen, hovered, selected, unmatched, showLabel } = props;
   const wp = connectorWorld(part, connector);
   const sp = worldToScreen(wp);
   const orient = connectorWorldOrientation(part, connector);
@@ -1284,6 +1440,11 @@ function ConnectorGlyph(props: {
     >
       {/* invisible hit target */}
       <circle r={CONNECTOR_HIT_PX} fill="transparent" />
+      {unmatched && (
+        <circle r={GLYPH + 6} fill="none" stroke="#ef4444" strokeWidth={1.5} strokeDasharray="2 2">
+          <title>No matching connector/receiver found yet</title>
+        </circle>
+      )}
       {/* leader in the facing direction */}
       <line
         x1={0}

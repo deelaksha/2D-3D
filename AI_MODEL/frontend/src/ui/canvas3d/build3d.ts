@@ -9,9 +9,7 @@ import * as THREE from "three";
 import type { Connection, Connector, Part, Placement, Project, Vec2, Vec3 } from "@/core/model/types";
 import { shapeOutline } from "@/core/geometry/outline";
 import { materialOf } from "@/core/model/defaults";
-import { checkCompatibility, connectorFamily } from "@/core/connectors/compat";
 import { connectorRole, defaultRole } from "@/core/connectors/feature";
-import { addConnection, placePart } from "@/core/store/actions";
 
 export type RenderMode = "textured" | "solid" | "wireframe" | "xray";
 
@@ -461,51 +459,6 @@ export function calculateMatingTransform(
     rotation: { x: targetRotX, y: targetRotY, z: targetRotZ },
   };
 }
-
-/**
- * Auto-Connect Engine:
- * Scans project for complementary connector pairs across parts and connects them in 3D.
- */
-export function autoConnectProject(project: Project): void {
-  const usedConnectors = new Set<string>();
-
-  for (let i = 0; i < project.parts.length; i++) {
-    const p1 = project.parts[i];
-    for (let j = i + 1; j < project.parts.length; j++) {
-      const p2 = project.parts[j];
-
-      for (const c1 of p1.connectors) {
-        if (usedConnectors.has(c1.id)) continue;
-
-        for (const c2 of p2.connectors) {
-          if (usedConnectors.has(c2.id)) continue;
-
-          const compat = checkCompatibility({ part: p1, connector: c1 }, { part: p2, connector: c2 });
-          if (compat.status === "valid" || compat.status === "possible") {
-            usedConnectors.add(c1.id);
-            usedConnectors.add(c2.id);
-
-            // Create connection
-            addConnection({
-              sourcePart: p1.id,
-              sourceConnector: c1.id,
-              targetPart: p2.id,
-              targetConnector: c2.id,
-              status: compat.status,
-              reason: compat.reason,
-            });
-
-            // Calculate 3D mating transform
-            const mating = calculateMatingTransform(p1, c1, p2, c2);
-            placePart(p2.id, mating.position, mating.rotation);
-            break; // Move to next connector on p1
-          }
-        }
-      }
-    }
-  }
-}
-
 
 /** Updates part positions based on exploded view percentage (0.0 to 1.0) */
 export function applyExplodeFactor(rootGroup: THREE.Group, factor: number): void {

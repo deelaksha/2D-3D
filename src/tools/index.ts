@@ -10,7 +10,6 @@ import { joineryTools } from "./joinery.tools";
 import { transformTools } from "./transform.tools";
 import { measureTools } from "./measure.tools";
 import { layoutTools } from "./layout.tools";
-import { materialTools } from "./material.tools";
 import { editTools } from "./edit.tools";
 
 export function registerAllTools(): void {
@@ -22,7 +21,6 @@ export function registerAllTools(): void {
     ...transformTools,
     ...measureTools,
     ...layoutTools,
-    ...materialTools,
     ...editTools,
   ]);
 }

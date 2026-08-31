@@ -71,7 +71,12 @@ export function connectorFeature(c: Connector): { op: BooleanOp; shape: Shape } 
   // intentionally checked first: a star, polygon, or freehand path must not
   // be reduced to a generic custom trapezoid when it becomes a connector.
   if (c.profileShape) {
-    return { op: role === "insert" ? "union" : "subtract", shape: structuredClone(c.profileShape) };
+    // c.orientation rotates the captured outline on top of however it was
+    // originally drawn, so rotating a custom connector (rotateConnector,
+    // the Inspector orientation control) actually turns its geometry too.
+    const shape = structuredClone(c.profileShape);
+    if (c.orientation) shape.rotation = (shape.rotation || 0) + c.orientation;
+    return { op: role === "insert" ? "union" : "subtract", shape };
   }
 
   const pattern = c.pattern ?? "standard";

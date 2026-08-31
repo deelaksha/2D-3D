@@ -27,6 +27,21 @@ function roundParams(diameter: number, depth: number): ToolParam[] {
 
 export const connectorTools: ToolDefinition[] = [
   {
+    id: "connector.custom",
+    name: "Custom Connector",
+    category: "connector",
+    icon: "🖊",
+    description: "Draw any cut or tab shape by clicking points — not limited to presets.",
+    hint: "Click to place each point of an arbitrary outline (a U-shaped slot, an irregular tab, a puzzle profile — anything). Click near the first point or double-click to close the shape, Enter to finish, Escape to cancel. The result becomes a real part whose exact geometry you can Union (add a tab) or Subtract (cut a slot/hole) into another part, then mark as a connector or receiver from the Joints panel — the generated match reuses this exact outline, never a generic rectangle or circle.",
+    tooltipAnimation: "cut-hole",
+    supportedModes: ["2d"],
+    kind: "draw",
+    createsShape: "polygon",
+    freeform: true,
+    keywords: ["custom", "freeform", "pen", "trace", "arbitrary", "irregular", "profile", "cut", "outline"],
+    undoable: true,
+  },
+  {
     id: "connector.tab",
     name: "Tab",
     category: "connector",

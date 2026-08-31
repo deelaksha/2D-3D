@@ -9,9 +9,9 @@ import * as THREE from "three";
 import type { Connection, Connector, Part, Placement, Project, Vec2, Vec3 } from "@/core/model/types";
 import { shapeOutline } from "@/core/geometry/outline";
 import { materialOf } from "@/core/model/defaults";
-import { checkCompatibility, connectorFamily } from "@/core/connectors/compat";
 import { connectorRole, defaultRole } from "@/core/connectors/feature";
-import { addConnection, placePart } from "@/core/store/actions";
+import { connectorStatuses } from "@/core/assembly/validate";
+import { mateRotationZ, mateTargetXY } from "@/core/connectors/mate";
 
 export type RenderMode = "textured" | "solid" | "wireframe" | "xray";
 
@@ -81,6 +81,21 @@ function getProceduralWoodTexture(hexColor: string): THREE.CanvasTexture {
   return texture;
 }
 
+/**
+ * Apply a part's 2D mirror/scale (flipX/flipY, scaleX/scaleY) to a
+ * local-frame outline point, so the 3D extrusion matches the same shape the
+ * 2D canvas draws (see partToWorld in core/geometry/world.ts). Rotation and
+ * position are layered on afterwards via the part's 3D placement instead of
+ * being baked into the geometry here.
+ */
+export function applyPartOrientation(part: Part, p: Vec2): Vec2 {
+  const t = part.transform;
+  return {
+    x: p.x * (t.scaleX || 1) * (t.flipX ? -1 : 1),
+    y: p.y * (t.scaleY || 1) * (t.flipY ? -1 : 1),
+  };
+}
+
 /** Build a filled THREE.Shape from an outer loop + holes (2D y is flipped for 3D). */
 function toShape(outer: Vec2[], holes: Vec2[][]): THREE.Shape {
   const s = new THREE.Shape();
@@ -148,41 +163,197 @@ export function createPartMaterial(
   }
 }
 
-/** Build 3D Transform Axis Gizmo (X Red, Y Green, Z Blue arrows) */
-export function buildTransformGizmo3D(partId: string, maxDim: number): THREE.Group {
+export type TransformTool = "move" | "rotate" | "scale";
+export type GizmoAxis = "x" | "y" | "z";
+
+const AXIS_COLORS: Record<GizmoAxis, number> = { x: 0xef4444, y: 0x22c55e, z: 0x3b82f6 };
+
+/** Orient a gizmo part built along local +Y so it points along the requested world axis. */
+function orientAlongAxis(obj: THREE.Object3D, axis: GizmoAxis): void {
+  if (axis === "x") obj.rotation.z = -Math.PI / 2;
+  else if (axis === "z") obj.rotation.x = Math.PI / 2;
+  // "y" needs no rotation — geometry is already built along +Y.
+}
+
+function tagGizmoHandle(
+  obj: THREE.Object3D,
+  data: { isGizmoAxis: true; gizmoMode: TransformTool; axis: GizmoAxis; partId: string; handleLength: number }
+): void {
+  obj.userData = data;
+  obj.renderOrder = 999;
+  obj.traverse((c) => {
+    c.userData = data;
+    c.renderOrder = 999;
+  });
+}
+
+/** Move handle: a shaft + cone arrowhead along one axis, click-draggable to translate. */
+function buildMoveHandle(axis: GizmoAxis, length: number, partId: string): THREE.Group {
+  const color = AXIS_COLORS[axis];
+  const shaftLen = length * 0.78;
+  const headLen = length * 0.24;
+  const shaftRadius = Math.max(0.9, length * 0.028);
+  const headRadius = shaftRadius * 2.6;
+
+  const mat = new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 });
+  const group = new THREE.Group();
+
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftLen, 10), mat);
+  shaft.position.y = shaftLen / 2;
+  group.add(shaft);
+
+  const head = new THREE.Mesh(new THREE.ConeGeometry(headRadius, headLen, 14), mat);
+  head.position.y = shaftLen + headLen / 2;
+  group.add(head);
+
+  orientAlongAxis(group, axis);
+  tagGizmoHandle(group, { isGizmoAxis: true, gizmoMode: "move", axis, partId, handleLength: length });
+  return group;
+}
+
+/** Rotate handle: a ring around one axis, click-draggable to spin the part about that axis. */
+function buildRotateHandle(axis: GizmoAxis, radius: number, partId: string): THREE.Group {
+  const color = AXIS_COLORS[axis];
+  const tube = Math.max(0.7, radius * 0.045);
+  const mat = new THREE.MeshBasicMaterial({
+    color,
+    depthTest: false,
+    transparent: true,
+    opacity: 0.95,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(new THREE.TorusGeometry(radius, tube, 10, 64), mat);
+
+  // TorusGeometry's ring normal is +Z by default; rotate so the ring wraps the requested axis.
+  if (axis === "x") mesh.rotation.y = Math.PI / 2;
+  else if (axis === "y") mesh.rotation.x = Math.PI / 2;
+
+  const group = new THREE.Group();
+  group.add(mesh);
+  tagGizmoHandle(group, { isGizmoAxis: true, gizmoMode: "rotate", axis, partId, handleLength: radius });
+  return group;
+}
+
+/** Scale handle: a shaft + cube head along one axis, click-draggable to scale the part. */
+function buildScaleHandle(axis: GizmoAxis, length: number, partId: string): THREE.Group {
+  const color = AXIS_COLORS[axis];
+  const shaftLen = length * 0.8;
+  const headSize = Math.max(3, length * 0.14);
+  const shaftRadius = Math.max(0.9, length * 0.028);
+
+  const mat = new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 });
+  const group = new THREE.Group();
+
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftLen, 10), mat);
+  shaft.position.y = shaftLen / 2;
+  group.add(shaft);
+
+  const head = new THREE.Mesh(new THREE.BoxGeometry(headSize, headSize, headSize), mat);
+  head.position.y = shaftLen + headSize / 2;
+  group.add(head);
+
+  orientAlongAxis(group, axis);
+  tagGizmoHandle(group, { isGizmoAxis: true, gizmoMode: "scale", axis, partId, handleLength: length });
+  return group;
+}
+
+/** Build the Blender-like 3D transform gizmo (Move / Rotate / Scale) for the selected part. */
+export function buildTransformGizmo3D(
+  partId: string,
+  maxDim: number,
+  mode: TransformTool = "move"
+): THREE.Group {
   const gizmo = new THREE.Group();
   gizmo.name = "transform_gizmo";
+  gizmo.renderOrder = 999;
 
-  const length = Math.max(50, maxDim * 1.2);
-  const headLength = Math.max(10, length * 0.2);
-  const headWidth = Math.max(5, headLength * 0.45);
+  const axes: GizmoAxis[] = ["x", "y", "z"];
+  if (mode === "rotate") {
+    const radius = Math.max(22, maxDim * 0.62);
+    axes.forEach((axis) => gizmo.add(buildRotateHandle(axis, radius, partId)));
+  } else if (mode === "scale") {
+    const length = Math.max(28, maxDim * 0.85);
+    axes.forEach((axis) => gizmo.add(buildScaleHandle(axis, length, partId)));
+  } else {
+    const length = Math.max(28, maxDim * 0.9);
+    axes.forEach((axis) => gizmo.add(buildMoveHandle(axis, length, partId)));
+  }
 
-  // X Axis (Red)
-  const dirX = new THREE.Vector3(1, 0, 0);
-  const arrowX = new THREE.ArrowHelper(dirX, new THREE.Vector3(0, 0, 0), length, 0xef4444, headLength, headWidth);
-  arrowX.userData = { isGizmoAxis: true, axis: "x", partId };
-  arrowX.traverse((c) => { c.userData = arrowX.userData; });
-  gizmo.add(arrowX);
-
-  // Y Axis (Green)
-  const dirY = new THREE.Vector3(0, 1, 0);
-  const arrowY = new THREE.ArrowHelper(dirY, new THREE.Vector3(0, 0, 0), length, 0x18a558, headLength, headWidth);
-  arrowY.userData = { isGizmoAxis: true, axis: "y", partId };
-  arrowY.traverse((c) => { c.userData = arrowY.userData; });
-  gizmo.add(arrowY);
-
-  // Z Axis (Blue - Vertical Height)
-  const dirZ = new THREE.Vector3(0, 0, 1);
-  const arrowZ = new THREE.ArrowHelper(dirZ, new THREE.Vector3(0, 0, 0), length, 0x3b82f6, headLength, headWidth);
-  arrowZ.userData = { isGizmoAxis: true, axis: "z", partId };
-  arrowZ.traverse((c) => { c.userData = arrowZ.userData; });
-  gizmo.add(arrowZ);
+  // Small anchor dot at the gizmo origin so it reads clearly as attached to the object.
+  const centerDot = new THREE.Mesh(
+    new THREE.SphereGeometry(Math.max(1.6, maxDim * 0.022), 12, 12),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true, opacity: 0.85 })
+  );
+  centerDot.renderOrder = 999;
+  gizmo.add(centerDot);
 
   return gizmo;
 }
 
+const PLACEMENT_MARKER_COLOR = 0xffdd00;
+
+/** Build the 3D placement marker — a crosshair/target showing exactly where the
+ * next part will be placed. Drawn through the world origin of its own group so
+ * moving the group (marker position) moves the whole crosshair as one unit. */
+export function buildPlacementMarker3D(size = 18): THREE.Group {
+  const marker = new THREE.Group();
+  marker.name = "placement_marker";
+  marker.renderOrder = 1000;
+
+  const lineMat = new THREE.LineBasicMaterial({
+    color: PLACEMENT_MARKER_COLOR,
+    depthTest: false,
+    transparent: true,
+    opacity: 0.95,
+  });
+
+  const axes: [number, number, number][] = [
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+  ];
+  for (const [ax, ay, az] of axes) {
+    const geo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-ax * size, -ay * size, -az * size),
+      new THREE.Vector3(ax * size, ay * size, az * size),
+    ]);
+    const line = new THREE.Line(geo, lineMat);
+    line.renderOrder = 1000;
+    marker.add(line);
+  }
+
+  // Ring around the crosshair (in the XZ ground plane) so the marker reads
+  // clearly as a "target" from a top-down camera angle, not just axis spikes.
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(size * 0.55, Math.max(0.6, size * 0.04), 8, 32),
+    new THREE.MeshBasicMaterial({
+      color: PLACEMENT_MARKER_COLOR,
+      depthTest: false,
+      transparent: true,
+      opacity: 0.85,
+    })
+  );
+  ring.rotation.x = Math.PI / 2;
+  ring.renderOrder = 1000;
+  marker.add(ring);
+
+  const centerDot = new THREE.Mesh(
+    new THREE.SphereGeometry(Math.max(1.2, size * 0.08), 12, 12),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      depthTest: false,
+      transparent: true,
+      opacity: 0.95,
+    })
+  );
+  centerDot.renderOrder = 1000;
+  marker.add(centerDot);
+
+  return marker;
+}
+
 /** Build interactive 3D Connector sphere markers on a part group */
-export function buildConnectorNodes3D(part: Part, thickness: number, group: THREE.Group): void {
+export function buildConnectorNodes3D(part: Part, thickness: number, group: THREE.Group, unmatchedIds?: Set<string>): void {
   for (const c of part.connectors) {
     const role = connectorRole(c);
     let colorHex = 0xf59e0b; // Amber neutral
@@ -220,8 +391,23 @@ export function buildConnectorNodes3D(part: Part, thickness: number, group: THRE
       localPos: new THREE.Vector3(posX, posY, thickness / 2),
     };
 
-
     group.add(marker);
+
+    if (unmatchedIds?.has(c.id)) {
+      const haloGeo = new THREE.SphereGeometry(Math.max(4, Math.min(8, (c.width || 10) / 2)) * 1.6, 12, 12);
+      const haloMat = new THREE.MeshBasicMaterial({
+        color: 0xef4444,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.85,
+        depthTest: false,
+      });
+      const halo = new THREE.Mesh(haloGeo, haloMat);
+      halo.position.copy(marker.position);
+      halo.renderOrder = 999;
+      halo.userData = { isConnectorHalo: true, connectorId: c.id, partId: part.id };
+      group.add(halo);
+    }
   }
 }
 
@@ -230,15 +416,19 @@ export function buildPartObject(
   project: Project,
   part: Part,
   renderMode: RenderMode = "textured",
-  isSelected = false
+  isSelected = false,
+  transformTool: TransformTool = "move",
+  unmatchedIds?: Set<string>
 ): THREE.Group | null {
-  const loops = shapeOutline(part.shape);
+  const orient = (pts: Vec2[]): Vec2[] => pts.map((p) => applyPartOrientation(part, p));
+
+  const loops = shapeOutline(part.shape).map(orient);
   const outer = loops[0];
   if (!outer || outer.length < 3) return null;
 
   const mods = part.modifiers.map((m) => ({
     op: m.op,
-    loops: shapeOutline(m.shape),
+    loops: shapeOutline(m.shape).map(orient),
   }));
   const subtract = mods.filter((m) => m.op === "subtract").flatMap((m) => m.loops);
   const union = mods.filter((m) => m.op === "union").flatMap((m) => m.loops);
@@ -303,13 +493,20 @@ export function buildPartObject(
   }
 
   // Add 3D Connector Nodes
-  buildConnectorNodes3D(part, thickness, group);
+  buildConnectorNodes3D(part, thickness, group, unmatchedIds);
 
-  // Attach 3D Axis Transform Gizmo when selected
+  // Attach 3D Axis Transform Gizmo when selected — anchored at the part's own
+  // geometric center (not the local origin, which is usually a corner) so it
+  // reads as attached to the object rather than floating off to one side.
   if (isSelected) {
     const maxDim = Math.max(part.width || 40, part.height || 40, thickness);
-    const gizmo = buildTransformGizmo3D(part.id, maxDim);
+    const gizmo = buildTransformGizmo3D(part.id, maxDim, transformTool);
+    baseGeo.computeBoundingBox();
+    const localCenter = new THREE.Vector3();
+    baseGeo.boundingBox?.getCenter(localCenter);
+    gizmo.position.copy(localCenter);
     group.add(gizmo);
+    group.userData.gizmoLocalCenter = localCenter.clone();
   }
 
   return group;
@@ -319,10 +516,16 @@ export function buildPartObject(
 export function buildProjectObject(
   project: Project,
   renderMode: RenderMode = "textured",
-  selection: string[] = []
+  selection: string[] = [],
+  transformTool: TransformTool = "move"
 ): THREE.Group {
   const root = new THREE.Group();
   const partGroupMap = new Map<string, THREE.Group>();
+  const unmatchedIds = new Set(
+    connectorStatuses(project)
+      .filter((s) => s.state === "unmatched")
+      .map((s) => s.connectorId)
+  );
 
   for (const part of project.parts) {
     if (!part.visible) continue;
@@ -333,7 +536,7 @@ export function buildProjectObject(
 
     if (isPlaced) {
       const isSelected = selection.includes(part.id);
-      const o = buildPartObject(project, part, renderMode, isSelected);
+      const o = buildPartObject(project, part, renderMode, isSelected, transformTool, unmatchedIds);
       if (o) {
         if (placement) {
           o.position.set(placement.position.x, placement.position.y, placement.position.z);
@@ -342,6 +545,9 @@ export function buildProjectObject(
             THREE.MathUtils.degToRad(placement.rotation.y),
             THREE.MathUtils.degToRad(placement.rotation.z)
           );
+          if (placement.scale) {
+            o.scale.set(placement.scale.x || 1, placement.scale.y || 1, placement.scale.z || 1);
+          }
         }
         root.add(o);
         partGroupMap.set(part.id, o);
@@ -443,69 +649,20 @@ export function calculateMatingTransform(
     (sourceConn.type === "hole" && targetConn.type === "peg") ||
     (sourceConn.type === "edge" || targetConn.type === "edge");
 
-  const targetRotZ = (sourceRot.z + (sourceConn.orientation - targetConn.orientation)) % 360;
+  const targetRotZ = mateRotationZ(sourceRot.z, sourceConn.orientation, targetConn.orientation);
   const targetRotX = isPerpendicular ? 90 : sourceRot.x;
   const targetRotY = sourceRot.y;
 
   // Offset position so target connector snaps directly to source connector
-  const sourceConnWorldX = sourcePos.x + sourceConn.position.x;
-  const sourceConnWorldY = sourcePos.y - sourceConn.position.y;
+  const targetXY = mateTargetXY(sourcePos, sourceRot.z, sourceConn.position, targetRotZ, targetConn.position);
   const sourceConnWorldZ = sourcePos.z + sourcePart.thickness;
-
-  const targetPosX = sourceConnWorldX - targetConn.position.x;
-  const targetPosY = sourceConnWorldY + targetConn.position.y;
   const targetPosZ = isPerpendicular ? sourceConnWorldZ : sourcePos.z;
 
   return {
-    position: { x: targetPosX, y: targetPosY, z: targetPosZ },
+    position: { x: targetXY.x, y: targetXY.y, z: targetPosZ },
     rotation: { x: targetRotX, y: targetRotY, z: targetRotZ },
   };
 }
-
-/**
- * Auto-Connect Engine:
- * Scans project for complementary connector pairs across parts and connects them in 3D.
- */
-export function autoConnectProject(project: Project): void {
-  const usedConnectors = new Set<string>();
-
-  for (let i = 0; i < project.parts.length; i++) {
-    const p1 = project.parts[i];
-    for (let j = i + 1; j < project.parts.length; j++) {
-      const p2 = project.parts[j];
-
-      for (const c1 of p1.connectors) {
-        if (usedConnectors.has(c1.id)) continue;
-
-        for (const c2 of p2.connectors) {
-          if (usedConnectors.has(c2.id)) continue;
-
-          const compat = checkCompatibility({ part: p1, connector: c1 }, { part: p2, connector: c2 });
-          if (compat.status === "valid" || compat.status === "possible") {
-            usedConnectors.add(c1.id);
-            usedConnectors.add(c2.id);
-
-            // Create connection
-            addConnection({
-              sourcePart: p1.id,
-              sourceConnector: c1.id,
-              targetPart: p2.id,
-              targetConnector: c2.id,
-              status: compat.status,
-              reason: compat.reason,
-            });
-
-            // Calculate 3D mating transform
-            const mating = calculateMatingTransform(p1, c1, p2, c2);
-            placePart(p2.id, mating.position, mating.rotation);
-            break; // Move to next connector on p1
-          }
-        }
-      }
-    }
-  }
-}
-
 
 /** Updates part positions based on exploded view percentage (0.0 to 1.0) */
 export function applyExplodeFactor(rootGroup: THREE.Group, factor: number): void {

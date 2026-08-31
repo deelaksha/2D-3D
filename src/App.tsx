@@ -21,7 +21,6 @@ import LeftToolbox from "./ui/toolbox/LeftToolbox";
 import Canvas2D from "./ui/canvas2d/Canvas2D";
 // 3D is loaded on demand so 2D users don't pay for three.js.
 const Canvas3D = lazy(() => import("./ui/canvas3d/Canvas3D"));
-import AssemblyProgressBar from "./ui/canvas3d/AssemblyProgressBar";
 import LayersPanel from "./ui/panels/LayersPanel";
 import PartsPanel from "./ui/panels/PartsPanel";
 import Inspector from "./ui/panels/Inspector";
@@ -156,6 +155,26 @@ function RightColumn(props: { onResizeStart: (event: PointerEvent<HTMLDivElement
 
 function AppContent() {
   const ui = useUI();
+  // TEMP-VERIFY-BOOTSTRAP: dev-only, screenshot-driven QA harness for the 3D
+  // viewport rework. Gated behind ?__verify=1 so it never affects normal use.
+  // Removed before finishing this task.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("__verify") !== "1") return;
+    void (async () => {
+      const { houseDemo } = await import("./data/houseDemo");
+      const { placePart, selectOne } = await import("./core/store/actions");
+      store.loadProject(houseDemo(), "Verify bootstrap");
+      const parts = store.getState().project.parts;
+      parts.forEach((p, i) => {
+        placePart(p.id, { x: (i - (parts.length - 1) / 2) * 140, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
+      });
+      store.setUI({ mode: "3d" });
+      const selId = params.get("select");
+      const target = selId ? parts.find((p) => p.name.toLowerCase().includes(selId.toLowerCase())) : parts[0];
+      if (target) selectOne(target.id);
+    })();
+  }, []);
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => window.innerWidth >= 900);
   const [leftPanelWidth, setLeftPanelWidth] = useState(236);
   const [rightPanelOpen, setRightPanelOpen] = useState(() => window.innerWidth >= 900);
@@ -297,12 +316,11 @@ function AppContent() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // 3D is a clean preview: top bar + progress bar + 3D canvas.
+  // 3D is a clean preview: top bar + 3D canvas.
   if (ui.mode === "3d") {
     return (
       <div className="wk-app wk-app--3d">
         <TopBar />
-        <AssemblyProgressBar />
         <div className="wk-canvas">
           <Suspense
             fallback={

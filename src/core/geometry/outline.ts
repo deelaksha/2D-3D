@@ -195,10 +195,6 @@ export function boundsOfPoints(pts: Vec2[]): Bounds {
   return { minX, minY, maxX, maxY };
 }
 
-export function shapeBounds(s: Shape): Bounds {
-  return boundsOfPoints(shapeOutline(s).flat());
-}
-
 /** Even-odd point-in-polygon test against a single loop. */
 export function pointInLoop(pt: Vec2, loop: Vec2[]): boolean {
   let inside = false;

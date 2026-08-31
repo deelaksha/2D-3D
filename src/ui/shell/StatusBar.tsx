@@ -2,6 +2,7 @@ import type { ChangeEvent } from "react";
 import { store, useProject, useUI } from "@/core/store/store";
 import type { Unit } from "@/core/model/types";
 import { registry } from "@/tools/registry";
+import { connectorStatuses, validateAssembly } from "@/core/assembly/validate";
 
 /** Bottom status bar: status message, counts, zoom, unit selector, tool count. */
 export default function StatusBar() {
@@ -10,6 +11,9 @@ export default function StatusBar() {
 
   const partCount = project.parts.length;
   const zoomPct = Math.round(ui.camera2d.zoom * 100);
+  const statuses = connectorStatuses(project);
+  const joinedCount = statuses.filter((s) => s.state === "joined").length;
+  const report = validateAssembly(project);
 
   function handleUnitChange(e: ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value as Unit;
@@ -40,6 +44,16 @@ export default function StatusBar() {
         </select>
       </span>
       <span className="wk-status__item">{registry.size} tools</span>
+      {statuses.length > 0 && (
+        <span
+          className="wk-status__item"
+          title={report.issues.length ? report.issues.map((i) => i.message).join("\n") : "All connectors joined or matched."}
+        >
+          {report.level !== "ok" && <span className={`wk-status__dot wk-status__dot--${report.level}`} />}
+          {joinedCount}/{statuses.length} joined
+          {report.issues.length > 0 ? ` · ${report.issues.length} issue${report.issues.length === 1 ? "" : "s"}` : ""}
+        </span>
+      )}
     </div>
   );
 }

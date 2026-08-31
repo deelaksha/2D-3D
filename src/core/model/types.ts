@@ -394,6 +394,8 @@ export interface Placement {
   position: Vec3;
   /** Euler rotation in degrees. */
   rotation: Vec3;
+  /** Per-axis scale multiplier applied in the 3D viewport (defaults to 1,1,1 when absent). */
+  scale?: Vec3;
   /** Whether the part has been dragged into the 3D scene yet. */
   placed: boolean;
 }

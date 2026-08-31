@@ -45,10 +45,6 @@ export function partBoundsWorld(part: Part): Bounds {
   return boundsOfPoints(partOutlineWorld(part).flat());
 }
 
-export function partBoundsLocal(part: Part): Bounds {
-  return boundsOfPoints(shapeOutline(part.shape).flat());
-}
-
 /** Hit-test a world point against a part's filled base outline. */
 export function pointInPart(part: Part, world: Vec2): boolean {
   const loops = partOutlineWorld(part);

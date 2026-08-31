@@ -25,20 +25,80 @@ import {
   placePart,
   removeConnection,
   rotateConnector,
+  rotatePlacement3D,
+  scalePlacement3D,
   selectOne,
   setPartMaterial,
+  setPlacementMarker,
   unplacePart,
 } from "@/core/store/actions";
 
 import { checkCompatibility } from "@/core/connectors/compat";
+import { boundsOfPoints, isClosedShape } from "@/core/geometry/outline";
+import { partModifiersWorld, partOutlineWorld } from "@/core/geometry/world";
 import { materialOf } from "@/core/model/defaults";
 import {
   applyExplodeFactor,
+  buildPlacementMarker3D,
   buildProjectObject,
   calculateMatingTransform,
   disposeObject,
+  type GizmoAxis,
   type RenderMode,
+  type TransformTool,
 } from "./build3d";
+
+/** Closest-point-between-two-lines: returns the signed distance along `axisDir`
+ * (from `axisPoint`) to the point on that axis line nearest the ray. Used to
+ * drive axis-constrained gizmo dragging (move/scale). */
+function closestParamOnAxisToRay(ray: THREE.Ray, axisPoint: THREE.Vector3, axisDir: THREE.Vector3): number {
+  const w0 = new THREE.Vector3().subVectors(ray.origin, axisPoint);
+  const b = ray.direction.dot(axisDir);
+  const d = ray.direction.dot(w0);
+  const e = axisDir.dot(w0);
+  const denom = 1 - b * b;
+  if (Math.abs(denom) < 1e-6) return -e;
+  return (e - b * d) / denom;
+}
+
+function computeGridSize(radius: number): { size: number; divisions: number } {
+  const size = Math.max(200, Math.min(6000, Math.round((radius * 6) / 20) * 20));
+  const divisions = Math.max(10, Math.min(60, Math.round(size / 25)));
+  return { size, divisions };
+}
+
+type GizmoDrag =
+  | {
+      kind: "move";
+      partId: string;
+      axis: GizmoAxis;
+      axisDir: THREE.Vector3;
+      centerWorld: THREE.Vector3;
+      startPos: { x: number; y: number; z: number };
+      rotation: { x: number; y: number; z: number };
+      t0: number;
+    }
+  | {
+      kind: "rotate";
+      partId: string;
+      axis: GizmoAxis;
+      axisDir: THREE.Vector3;
+      centerWorld: THREE.Vector3;
+      basisA: THREE.Vector3;
+      basisB: THREE.Vector3;
+      startRotation: { x: number; y: number; z: number };
+      angle0: number;
+    }
+  | {
+      kind: "scale";
+      partId: string;
+      axis: GizmoAxis;
+      axisDir: THREE.Vector3;
+      centerWorld: THREE.Vector3;
+      startScale: { x: number; y: number; z: number };
+      handleLength: number;
+      t0: number;
+    };
 
 export type EnvTheme = "dark" | "workshop" | "light" | "cyber";
 
@@ -63,13 +123,21 @@ interface Viewer {
   sphericalGoal: THREE.Spherical;
   group: THREE.Group | null;
   gridHelper: THREE.GridHelper | null;
+  gridColors: { grid: number; gridCenter: number };
   shadowPlane: THREE.Mesh | null;
+  /** Visible crosshair/target showing the exact spot the next placed part lands at. */
+  markerGroup: THREE.Group | null;
   keyLight: THREE.DirectionalLight;
   fillLight: THREE.DirectionalLight;
   rimLight: THREE.DirectionalLight;
   ambientLight: THREE.AmbientLight;
   applyCameraImmediately: () => void;
-  fit: (radius: number) => void;
+  /** Frame the camera on a world-space bounding box (auto-fit on load / selection). */
+  frame: (box: THREE.Box3, opts?: { preserveAngle?: boolean }) => void;
+  /** Resize the ground grid to stay proportionate to the current scene content. */
+  setGridRadius: (radius: number) => void;
+  /** Rebuild the grid using the current gridColors (after an env theme change). */
+  rebuildGridColors: () => void;
 }
 
 const ENV_CONFIGS: Record<
@@ -130,7 +198,7 @@ function adjustColor(hex: string, amt: number): string {
   return (usePound ? "#" : "") + (g | (b << 8) | (r << 16)).toString(16).padStart(6, "0");
 }
 
-function PartThumbnail({ part, materialColor }: { part: any; materialColor: string }): JSX.Element {
+export function PartThumbnail({ part, materialColor }: { part: any; materialColor: string }): JSX.Element {
   const aspect = part.height > 0 ? part.width / part.height : 1.5;
   let svgW = 110;
   let svgH = 65;
@@ -151,6 +219,38 @@ function PartThumbnail({ part, materialColor }: { part: any; materialColor: stri
   const viewBoxH = svgH + pad * 2;
   const rectX = pad;
   const rectY = pad;
+
+  // Map the part's real 2D geometry (its actual shape outline, any flips/
+  // rotation applied in the 2D editor, and any hole/insert modifiers) into
+  // the thumbnail box, so the preview always matches what was drawn in 2D —
+  // a circle previews as a circle, a rotated/mirrored hexagon previews
+  // rotated/mirrored, a part with a cut hole previews with the hole, etc.
+  const closed = isClosedShape(part.shape.kind);
+  const outlineLoops = partOutlineWorld(part).filter((loop) => loop.length >= 2);
+  const mods = closed ? partModifiersWorld(part) : [];
+  const subtractLoops = mods.filter((m) => m.op === "subtract").flatMap((m) => m.loops);
+  const unionLoops = mods.filter((m) => m.op === "union").flatMap((m) => m.loops);
+
+  const bounds = boundsOfPoints([...outlineLoops, ...subtractLoops, ...unionLoops].flat());
+  const boundsW = bounds.maxX - bounds.minX || 1;
+  const boundsH = bounds.maxY - bounds.minY || 1;
+  const shapeScaleX = svgW / boundsW;
+  const shapeScaleY = svgH / boundsH;
+  const loopsToPath = (loops: { x: number; y: number }[][], dx: number, dy: number): string =>
+    loops
+      .filter((loop) => loop.length >= 2)
+      .map((loop) => {
+        const pts = loop.map((p) => ({
+          x: rectX + dx + (p.x - bounds.minX) * shapeScaleX,
+          y: rectY + dy + (p.y - bounds.minY) * shapeScaleY,
+        }));
+        return `M ${pts[0].x} ${pts[0].y} ${pts
+          .slice(1)
+          .map((p) => `L ${p.x} ${p.y}`)
+          .join(" ")}${closed ? " Z" : ""}`;
+      })
+      .join(" ");
+  const shapePath = (dx: number, dy: number): string => loopsToPath([...outlineLoops, ...subtractLoops], dx, dy);
 
   return (
     <div
@@ -176,28 +276,38 @@ function PartThumbnail({ part, materialColor }: { part: any; materialColor: stri
           </linearGradient>
         </defs>
 
-        {/* 3D Extruded Depth Bevel */}
-        <rect
-          x={rectX + 2.5}
-          y={rectY + 3.5}
-          width={svgW}
-          height={svgH}
-          rx={4}
-          fill={adjustColor(materialColor, -50)}
-        />
+        {closed ? (
+          <>
+            {/* 3D Extruded Depth Bevel */}
+            <path d={shapePath(2.5, 3.5)} fillRule="evenodd" fill={adjustColor(materialColor, -50)} />
 
-        {/* Main Panel Shape */}
-        <rect
-          x={rectX}
-          y={rectY}
-          width={svgW}
-          height={svgH}
-          rx={4}
-          fill={`url(#grad-${part.id})`}
-          stroke="rgba(0,0,0,0.35)"
-          strokeWidth="1.2"
-          filter={`url(#shd-${part.id})`}
-        />
+            {/* insert/union modifiers painted under the base so only the protruding part shows */}
+            {unionLoops.length > 0 && (
+              <path d={loopsToPath(unionLoops, 0, 0)} fill={`url(#grad-${part.id})`} fillRule="evenodd" />
+            )}
+
+            {/* Main Panel Shape (even-odd so ring/hole loops render as cut-outs) */}
+            <path
+              d={shapePath(0, 0)}
+              fillRule="evenodd"
+              fill={`url(#grad-${part.id})`}
+              stroke="rgba(0,0,0,0.35)"
+              strokeWidth="1.2"
+              filter={`url(#shd-${part.id})`}
+            />
+          </>
+        ) : (
+          // Open shapes (line/polyline/arc/bezier) preview as a stroke, not a filled blob.
+          <path
+            d={shapePath(0, 0)}
+            fill="none"
+            stroke={materialColor}
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            filter={`url(#shd-${part.id})`}
+          />
+        )}
 
         {/* Connector Notch Indicators on Edges */}
         {part.connectors?.map((c: any) => {
@@ -223,6 +333,10 @@ export default function Canvas3D(): JSX.Element {
   const ui = useUI();
   const mountRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
+  const hasFramedRef = useRef(false);
+  const lastSelectionKeyRef = useRef<string>("");
+  const showGridRef = useRef(true);
+  const markerPickModeRef = useRef(false);
 
   // Viewport State Controls
   const [renderMode, setRenderMode] = useState<RenderMode>("textured");
@@ -231,6 +345,18 @@ export default function Canvas3D(): JSX.Element {
   const [autoRotate, setAutoRotate] = useState<boolean>(false);
   const [showGrid, setShowGrid] = useState<boolean>(true);
   const [showConnectors, setShowConnectors] = useState<boolean>(true);
+  const [transformTool, setTransformTool] = useState<TransformTool>("move");
+  // Click-to-place mode: when true, the next canvas click moves the placement
+  // marker to the clicked point instead of selecting/connecting parts.
+  const [markerPickMode, setMarkerPickMode] = useState<boolean>(false);
+
+  useEffect(() => {
+    showGridRef.current = showGrid;
+  }, [showGrid]);
+
+  useEffect(() => {
+    markerPickModeRef.current = markerPickMode;
+  }, [markerPickMode]);
 
 
   // 3D Mating & Connection Controls
@@ -294,51 +420,49 @@ export default function Canvas3D(): JSX.Element {
     rimLight.position.set(0, -600, 400);
     scene.add(rimLight);
 
-    const gridHelper = new THREE.GridHelper(
-      1400,
-      44,
-      ENV_CONFIGS.dark.gridCenter,
-      ENV_CONFIGS.dark.grid
-    );
-    gridHelper.rotation.x = Math.PI / 2;
-    gridHelper.position.z = -0.5;
+    // Grid is sized dynamically (via setGridRadius) so it stays proportionate
+    // to whatever content is in the scene instead of dwarfing small parts.
+    const gridColors = { grid: ENV_CONFIGS.dark.grid, gridCenter: ENV_CONFIGS.dark.gridCenter };
+    let lastGridRadius = 220;
+
+    function buildGridHelper(radius: number): THREE.GridHelper {
+      const { size, divisions } = computeGridSize(radius);
+      const g = new THREE.GridHelper(size, divisions, gridColors.gridCenter, gridColors.grid);
+      g.rotation.x = Math.PI / 2;
+      g.position.z = -0.5;
+      g.visible = showGridRef.current;
+      const mat = g.material as THREE.Material;
+      mat.transparent = true;
+      mat.opacity = 0.7;
+      return g;
+    }
+
+    let gridHelper = buildGridHelper(lastGridRadius);
     scene.add(gridHelper);
 
-    const shadowGeo = new THREE.PlaneGeometry(2000, 2000);
+    const shadowGeo = new THREE.PlaneGeometry(4000, 4000);
     const shadowMat = new THREE.ShadowMaterial({ opacity: 0.28 });
+    const markerGroup = buildPlacementMarker3D();
+    scene.add(markerGroup);
+
     const shadowPlane = new THREE.Mesh(shadowGeo, shadowMat);
     shadowPlane.position.z = -1;
     shadowPlane.receiveShadow = true;
     scene.add(shadowPlane);
 
+    scene.fog = new THREE.Fog(ENV_CONFIGS.dark.bg, 900, 3200);
+
+    // Pre-fit-ish defaults; frame() re-centers and re-distances as soon as
+    // real content loads, so this is just a sane placeholder before that.
     const target = new THREE.Vector3(0, 0, 0);
     const targetGoal = new THREE.Vector3(0, 0, 0);
-    const spherical = new THREE.Spherical(600, Math.PI / 3, Math.PI / 4);
-    const sphericalGoal = new THREE.Spherical(600, Math.PI / 3, Math.PI / 4);
+    const spherical = new THREE.Spherical(320, Math.PI / 3, Math.PI / 4);
+    const sphericalGoal = new THREE.Spherical(320, Math.PI / 3, Math.PI / 4);
 
     const applyCameraImmediately = () => {
       spherical.makeSafe();
       camera.position.setFromSpherical(spherical).add(target);
       camera.lookAt(target);
-    };
-
-    const fit = (radius: number) => {
-      const r = Math.max(radius, 40);
-      const dist = (r / Math.sin((camera.fov * Math.PI) / 360)) * 1.35;
-      sphericalGoal.radius = dist;
-      sphericalGoal.phi = Math.PI / 3;
-      sphericalGoal.theta = Math.PI / 4;
-      targetGoal.set(0, 0, 0);
-
-      camera.near = Math.max(1, r / 100);
-      camera.far = r * 300;
-      camera.updateProjectionMatrix();
-
-      keyLight.shadow.camera.left = -r * 2;
-      keyLight.shadow.camera.right = r * 2;
-      keyLight.shadow.camera.top = r * 2;
-      keyLight.shadow.camera.bottom = -r * 2;
-      keyLight.shadow.camera.updateProjectionMatrix();
     };
 
     applyCameraImmediately();
@@ -353,18 +477,76 @@ export default function Canvas3D(): JSX.Element {
       sphericalGoal,
       group: null,
       gridHelper,
+      gridColors,
       shadowPlane,
+      markerGroup,
       keyLight,
       fillLight,
       rimLight,
       ambientLight,
       applyCameraImmediately,
-      fit,
+      frame: () => {},
+      setGridRadius: () => {},
+      rebuildGridColors: () => {},
     };
     viewerRef.current = viewer;
 
+    // Frame the camera on a world-space box: recenters the orbit target and
+    // picks a distance that fills the viewport, so the selected/active object
+    // is never left tiny-and-far-away or off-center.
+    viewer.frame = (box: THREE.Box3, opts?: { preserveAngle?: boolean }) => {
+      if (box.isEmpty()) return;
+      const sphere = box.getBoundingSphere(new THREE.Sphere());
+      const r = Math.max(sphere.radius, 20);
+      const dist = (r / Math.sin((camera.fov * Math.PI) / 360)) * 1.6;
+
+      targetGoal.copy(sphere.center);
+      sphericalGoal.radius = dist;
+      if (!opts?.preserveAngle) {
+        sphericalGoal.phi = Math.PI / 3;
+        sphericalGoal.theta = Math.PI / 4;
+      }
+
+      camera.near = Math.max(0.5, r / 100);
+      camera.far = Math.max(4000, r * 300);
+      camera.updateProjectionMatrix();
+
+      keyLight.shadow.camera.left = -r * 3;
+      keyLight.shadow.camera.right = r * 3;
+      keyLight.shadow.camera.top = r * 3;
+      keyLight.shadow.camera.bottom = -r * 3;
+      keyLight.shadow.camera.updateProjectionMatrix();
+
+      if (scene.fog && (scene.fog as THREE.Fog).isFog) {
+        (scene.fog as THREE.Fog).near = r * 3.2;
+        (scene.fog as THREE.Fog).far = r * 11;
+      }
+    };
+
+    viewer.setGridRadius = (radius: number) => {
+      const r = Math.max(20, radius);
+      if (lastGridRadius > 0 && Math.abs(r - lastGridRadius) / lastGridRadius < 0.18) return;
+      lastGridRadius = r;
+      scene.remove(gridHelper);
+      gridHelper.geometry.dispose();
+      (gridHelper.material as THREE.Material).dispose();
+      gridHelper = buildGridHelper(r);
+      viewer.gridHelper = gridHelper;
+      scene.add(gridHelper);
+    };
+
+    viewer.rebuildGridColors = () => {
+      scene.remove(gridHelper);
+      gridHelper.geometry.dispose();
+      (gridHelper.material as THREE.Material).dispose();
+      gridHelper = buildGridHelper(lastGridRadius);
+      viewer.gridHelper = gridHelper;
+      scene.add(gridHelper);
+    };
+
     let dragging = false;
     let draggingPartId: string | null = null;
+    let gizmoDrag: GizmoDrag | null = null;
     const dragPlane = new THREE.Plane();
     const dragOffset = new THREE.Vector3();
     let dragStartRot = { x: 0, y: 0, z: 0 };
@@ -380,6 +562,7 @@ export default function Canvas3D(): JSX.Element {
       downX = e.clientX;
       downY = e.clientY;
       draggingPartId = null;
+      gizmoDrag = null;
 
       isPan = e.button === 2 || e.button === 1 || e.shiftKey;
 
@@ -392,45 +575,131 @@ export default function Canvas3D(): JSX.Element {
         raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
         const intersects = raycaster.intersectObjects(viewer.group.children, true);
 
-        for (const hit of intersects) {
-          const data = hit.object.userData;
-          if (data && data.isConnector) {
-            break;
-          }
-          if (data && data.partId) {
-            selectOne(data.partId);
-            draggingPartId = data.partId;
+        // Gizmo handles always win over connectors/part bodies underneath them.
+        const gizmoHit = intersects.find((hit) => hit.object.userData && hit.object.userData.isGizmoAxis);
+
+        if (gizmoHit) {
+          const gd = gizmoHit.object.userData as {
+            gizmoMode: TransformTool;
+            axis: GizmoAxis;
+            partId: string;
+            handleLength: number;
+          };
+
+          let gizmoRoot: THREE.Object3D | null = gizmoHit.object;
+          while (gizmoRoot && gizmoRoot.name !== "transform_gizmo") gizmoRoot = gizmoRoot.parent;
+
+          if (gizmoRoot) {
+            gizmoRoot.updateWorldMatrix(true, false);
+            const centerWorld = gizmoRoot.getWorldPosition(new THREE.Vector3());
+            const worldQuat = new THREE.Quaternion();
+            gizmoRoot.getWorldQuaternion(worldQuat);
+            const axisLocal =
+              gd.axis === "x"
+                ? new THREE.Vector3(1, 0, 0)
+                : gd.axis === "y"
+                ? new THREE.Vector3(0, 1, 0)
+                : new THREE.Vector3(0, 0, 1);
+            const axisDir = axisLocal.applyQuaternion(worldQuat).normalize();
+
             const projectState = store.getState().project;
-            const placement = projectState.assembly.placements.find((pl) => pl.partId === data.partId);
-            const partStartPos = placement?.position ?? { x: 0, y: 0, z: 0 };
-            dragStartRot = placement?.rotation ?? { x: 0, y: 0, z: 0 };
+            const placement = projectState.assembly.placements.find((pl) => pl.partId === gd.partId);
+            const startPos = placement?.position ?? { x: 0, y: 0, z: 0 };
+            const startRot = placement?.rotation ?? { x: 0, y: 0, z: 0 };
+            const startScale = placement?.scale ?? { x: 1, y: 1, z: 1 };
 
-            const camDir = new THREE.Vector3();
-            camera.getWorldDirection(camDir);
-            const dotZ = Math.abs(camDir.z);
+            selectOne(gd.partId);
 
-            if (dotZ > 0.15) {
-              dragPlane.set(new THREE.Vector3(0, 0, 1), -partStartPos.z);
+            if (gd.gizmoMode === "rotate") {
+              const up = Math.abs(axisDir.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+              const basisA = new THREE.Vector3().crossVectors(up, axisDir).normalize();
+              const basisB = new THREE.Vector3().crossVectors(axisDir, basisA).normalize();
+              const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(axisDir, centerWorld);
+              const hitPt = new THREE.Vector3();
+              let angle0 = 0;
+              if (raycaster.ray.intersectPlane(plane, hitPt)) {
+                const v = hitPt.clone().sub(centerWorld);
+                angle0 = Math.atan2(v.dot(basisB), v.dot(basisA));
+              }
+              gizmoDrag = {
+                kind: "rotate",
+                partId: gd.partId,
+                axis: gd.axis,
+                axisDir,
+                centerWorld,
+                basisA,
+                basisB,
+                startRotation: startRot,
+                angle0,
+              };
+            } else if (gd.gizmoMode === "scale") {
+              const t0 = closestParamOnAxisToRay(raycaster.ray, centerWorld, axisDir);
+              gizmoDrag = {
+                kind: "scale",
+                partId: gd.partId,
+                axis: gd.axis,
+                axisDir,
+                centerWorld,
+                startScale,
+                handleLength: gd.handleLength || 40,
+                t0,
+              };
             } else {
-              camDir.negate();
-              dragPlane.setFromNormalAndCoplanarPoint(camDir, hit.point);
+              const t0 = closestParamOnAxisToRay(raycaster.ray, centerWorld, axisDir);
+              gizmoDrag = {
+                kind: "move",
+                partId: gd.partId,
+                axis: gd.axis,
+                axisDir,
+                centerWorld,
+                startPos,
+                rotation: startRot,
+                t0,
+              };
             }
-
-            const hitIntersect = new THREE.Vector3();
-            const hasHit = raycaster.ray.intersectPlane(dragPlane, hitIntersect);
-            if (hasHit) {
-              dragOffset.subVectors(new THREE.Vector3(partStartPos.x, partStartPos.y, partStartPos.z), hitIntersect);
-            } else {
-              dragOffset.set(0, 0, 0);
-            }
-
             renderer.domElement.style.cursor = "grabbing";
-            break;
+          }
+        } else {
+          for (const hit of intersects) {
+            const data = hit.object.userData;
+            if (data && data.isConnector) {
+              break;
+            }
+            if (data && data.partId) {
+              selectOne(data.partId);
+              draggingPartId = data.partId;
+              const projectState = store.getState().project;
+              const placement = projectState.assembly.placements.find((pl) => pl.partId === data.partId);
+              const partStartPos = placement?.position ?? { x: 0, y: 0, z: 0 };
+              dragStartRot = placement?.rotation ?? { x: 0, y: 0, z: 0 };
+
+              const camDir = new THREE.Vector3();
+              camera.getWorldDirection(camDir);
+              const dotZ = Math.abs(camDir.z);
+
+              if (dotZ > 0.15) {
+                dragPlane.set(new THREE.Vector3(0, 0, 1), -partStartPos.z);
+              } else {
+                camDir.negate();
+                dragPlane.setFromNormalAndCoplanarPoint(camDir, hit.point);
+              }
+
+              const hitIntersect = new THREE.Vector3();
+              const hasHit = raycaster.ray.intersectPlane(dragPlane, hitIntersect);
+              if (hasHit) {
+                dragOffset.subVectors(new THREE.Vector3(partStartPos.x, partStartPos.y, partStartPos.z), hitIntersect);
+              } else {
+                dragOffset.set(0, 0, 0);
+              }
+
+              renderer.domElement.style.cursor = "grabbing";
+              break;
+            }
           }
         }
       }
 
-      if (!draggingPartId) {
+      if (!draggingPartId && !gizmoDrag) {
         dragging = true;
       }
       renderer.domElement.setPointerCapture(e.pointerId);
@@ -441,6 +710,60 @@ export default function Canvas3D(): JSX.Element {
       const dy = e.clientY - py;
       px = e.clientX;
       py = e.clientY;
+
+      if (gizmoDrag && mount) {
+        const rect = mount.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+
+        if (gizmoDrag.kind === "move") {
+          const t = closestParamOnAxisToRay(raycaster.ray, gizmoDrag.centerWorld, gizmoDrag.axisDir);
+          const delta = t - gizmoDrag.t0;
+          const newPos = new THREE.Vector3(
+            gizmoDrag.startPos.x,
+            gizmoDrag.startPos.y,
+            gizmoDrag.startPos.z
+          ).addScaledVector(gizmoDrag.axisDir, delta);
+          placePart(
+            gizmoDrag.partId,
+            { x: Math.round(newPos.x), y: Math.round(newPos.y), z: Math.round(newPos.z) },
+            gizmoDrag.rotation
+          );
+        } else if (gizmoDrag.kind === "rotate") {
+          const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+            gizmoDrag.axisDir,
+            gizmoDrag.centerWorld
+          );
+          const hitPt = new THREE.Vector3();
+          if (raycaster.ray.intersectPlane(plane, hitPt)) {
+            const v = hitPt.clone().sub(gizmoDrag.centerWorld);
+            const angleNow = Math.atan2(v.dot(gizmoDrag.basisB), v.dot(gizmoDrag.basisA));
+            const deltaDeg = THREE.MathUtils.radToDeg(angleNow - gizmoDrag.angle0);
+            const startRot = gizmoDrag.startRotation;
+            const newRot = {
+              x: startRot.x + (gizmoDrag.axis === "x" ? deltaDeg : 0),
+              y: startRot.y + (gizmoDrag.axis === "y" ? deltaDeg : 0),
+              z: startRot.z + (gizmoDrag.axis === "z" ? deltaDeg : 0),
+            };
+            rotatePlacement3D(gizmoDrag.partId, newRot);
+          }
+        } else if (gizmoDrag.kind === "scale") {
+          const t = closestParamOnAxisToRay(raycaster.ray, gizmoDrag.centerWorld, gizmoDrag.axisDir);
+          const delta = t - gizmoDrag.t0;
+          const factor = Math.max(0.1, 1 + delta / gizmoDrag.handleLength);
+          const startScale = gizmoDrag.startScale;
+          const newScale = {
+            x: gizmoDrag.axis === "x" ? startScale.x * factor : startScale.x,
+            y: gizmoDrag.axis === "y" ? startScale.y * factor : startScale.y,
+            z: gizmoDrag.axis === "z" ? startScale.z * factor : startScale.z,
+          };
+          scalePlacement3D(gizmoDrag.partId, newScale);
+        }
+        return;
+      }
 
       if (draggingPartId && mount) {
         const rect = mount.getBoundingClientRect();
@@ -498,8 +821,9 @@ export default function Canvas3D(): JSX.Element {
     };
 
     const onUp = (e: PointerEvent) => {
-      const wasPartDragging = !!draggingPartId;
+      const wasGizmoDragging = !!gizmoDrag;
       draggingPartId = null;
+      gizmoDrag = null;
       dragging = false;
 
       renderer.domElement.style.cursor = "default";
@@ -508,7 +832,7 @@ export default function Canvas3D(): JSX.Element {
       }
 
       const moveDist = Math.hypot(e.clientX - downX, e.clientY - downY);
-      if (moveDist < 5) {
+      if (moveDist < 5 && !wasGizmoDragging) {
         handleCanvasClick(e.clientX, e.clientY);
       }
     };
@@ -561,6 +885,7 @@ export default function Canvas3D(): JSX.Element {
       renderer.domElement.removeEventListener("contextmenu", onContextMenu);
 
       if (viewer.group) disposeObject(viewer.group);
+      if (viewer.markerGroup) disposeObject(viewer.markerGroup);
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
       viewerRef.current = null;
@@ -586,15 +911,15 @@ export default function Canvas3D(): JSX.Element {
     v.ambientLight.color.setHex(cfg.ambient);
     v.keyLight.color.setHex(cfg.key);
     v.fillLight.color.setHex(cfg.fill);
+    if (v.scene.fog && v.scene.fog instanceof THREE.Fog) {
+      v.scene.fog.color.setHex(cfg.bg);
+    }
 
+    v.gridColors.grid = cfg.grid;
+    v.gridColors.gridCenter = cfg.gridCenter;
+    v.rebuildGridColors();
     if (v.gridHelper) {
-      v.scene.remove(v.gridHelper);
-      v.gridHelper.geometry.dispose();
-      v.gridHelper = new THREE.GridHelper(1400, 44, cfg.gridCenter, cfg.grid);
-      v.gridHelper.rotation.x = Math.PI / 2;
-      v.gridHelper.position.z = -0.5;
       v.gridHelper.visible = showGrid;
-      v.scene.add(v.gridHelper);
     }
   }, [envTheme, showGrid]);
 
@@ -608,20 +933,48 @@ export default function Canvas3D(): JSX.Element {
       v.group = null;
     }
 
-    const g = buildProjectObject(project, renderMode, ui.selection);
+    const g = buildProjectObject(project, renderMode, ui.selection, transformTool);
     const box = new THREE.Box3().setFromObject(g);
-    if (!box.isEmpty()) {
-      v.scene.add(g);
-      v.group = g;
+    v.scene.add(g);
+    v.group = g;
 
+    if (!box.isEmpty()) {
       if (explodeFactor > 0) {
         applyExplodeFactor(g, explodeFactor);
       }
-    } else {
-      v.scene.add(g);
-      v.group = g;
+
+      const sphere = box.getBoundingSphere(new THREE.Sphere());
+      v.setGridRadius(sphere.radius);
+
+      const selectionKey = [...ui.selection].sort().join(",");
+      if (!hasFramedRef.current) {
+        v.frame(box, { preserveAngle: false });
+        hasFramedRef.current = true;
+      } else if (selectionKey && selectionKey !== lastSelectionKeyRef.current) {
+        const selBox = new THREE.Box3();
+        let found = false;
+        g.traverse((child) => {
+          const data: any = child.userData;
+          if (data && data.partId && !data.isGizmoAxis && ui.selection.includes(data.partId)) {
+            selBox.expandByObject(child);
+            found = true;
+          }
+        });
+        if (found && !selBox.isEmpty()) {
+          v.frame(selBox, { preserveAngle: true });
+        }
+      }
+      lastSelectionKeyRef.current = selectionKey;
     }
-  }, [project, renderMode, ui.selection]);
+  }, [project, renderMode, ui.selection, transformTool]);
+
+  /* ---- Keep the placement marker crosshair in sync with ui.placementMarker ---- */
+  useEffect(() => {
+    const v = viewerRef.current;
+    if (!v || !v.markerGroup) return;
+    const { x, y, z } = ui.placementMarker;
+    v.markerGroup.position.set(x, y, z);
+  }, [ui.placementMarker]);
 
 
   /* ---- Toggle 3D Connector Markers Visibility ---- */
@@ -629,7 +982,7 @@ export default function Canvas3D(): JSX.Element {
     const v = viewerRef.current;
     if (!v || !v.group) return;
     v.group.traverse((obj) => {
-      if (obj.userData && obj.userData.isConnector) {
+      if (obj.userData && (obj.userData.isConnector || obj.userData.isConnectorHalo)) {
         obj.visible = showConnectors;
       }
     });
@@ -648,7 +1001,7 @@ export default function Canvas3D(): JSX.Element {
   /* ---- Interactive Canvas Click for Connector Mating ---- */
   const handleCanvasClick = (clientX: number, clientY: number) => {
     const v = viewerRef.current;
-    if (!v || !v.group || !mountRef.current) return;
+    if (!v || !mountRef.current) return;
 
     const rect = mountRef.current.getBoundingClientRect();
     const x = ((clientX - rect.left) / rect.width) * 2 - 1;
@@ -657,6 +1010,34 @@ export default function Canvas3D(): JSX.Element {
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(new THREE.Vector2(x, y), v.camera);
 
+    // Click-to-place mode: move the marker to the clicked point instead of
+    // running the normal selection/connector-mating click logic.
+    if (markerPickModeRef.current) {
+      let hitPoint: THREE.Vector3 | null = null;
+      if (v.group) {
+        const objHits = raycaster.intersectObjects(v.group.children, true);
+        if (objHits.length > 0) hitPoint = objHits[0].point.clone();
+      }
+      if (!hitPoint) {
+        const groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+        const groundPlaneFlip = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
+        const targetPt = new THREE.Vector3();
+        if (
+          raycaster.ray.intersectPlane(groundPlane, targetPt) ||
+          raycaster.ray.intersectPlane(groundPlaneFlip, targetPt)
+        ) {
+          hitPoint = targetPt;
+        }
+      }
+      if (hitPoint) {
+        const marker = { x: Math.round(hitPoint.x), y: Math.round(hitPoint.y), z: Math.round(hitPoint.z) };
+        setPlacementMarker(marker);
+        showToast(`Marker set to (${marker.x}, ${marker.y}, ${marker.z})`);
+      }
+      return;
+    }
+
+    if (!v.group) return;
     const intersects = raycaster.intersectObjects(v.group.children, true);
     for (const hit of intersects) {
       const data = hit.object.userData;
@@ -685,19 +1066,28 @@ export default function Canvas3D(): JSX.Element {
 
           if (p1 && c1 && p2 && c2) {
             const compat = checkCompatibility({ part: p1, connector: c1 }, { part: p2, connector: c2 });
-            addConnection({
-              sourcePart: p1.id,
-              sourceConnector: c1.id,
-              targetPart: p2.id,
-              targetConnector: c2.id,
-              status: compat.status,
-              reason: compat.reason,
-            });
 
-            const mating = calculateMatingTransform(p1, c1, p2, c2);
-            placePart(p2.id, mating.position, mating.rotation);
+            if (compat.status === "invalid") {
+              showToast(`⚠ Can't connect ${c1.name} to ${c2.name}: ${compat.reason}`);
+            } else {
+              addConnection({
+                sourcePart: p1.id,
+                sourceConnector: c1.id,
+                targetPart: p2.id,
+                targetConnector: c2.id,
+                status: compat.status,
+                reason: compat.reason,
+              });
 
-            showToast(`Connected ${p1.name} to ${p2.name}!`);
+              const mating = calculateMatingTransform(p1, c1, p2, c2);
+              placePart(p2.id, mating.position, mating.rotation);
+
+              showToast(
+                compat.status === "possible"
+                  ? `⚠ Connected ${p1.name} to ${p2.name}, but the fit is loose: ${compat.reason}`
+                  : `Connected ${p1.name} to ${p2.name}!`
+              );
+            }
             setSelectedSourceConn(null);
           }
         }
@@ -724,8 +1114,8 @@ export default function Canvas3D(): JSX.Element {
   const handleAddPartToScene = (partId: string) => {
     const p = project.parts.find((x) => x.id === partId);
     if (!p) return;
-    placePart(partId, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
-    showToast(`Added ${p.name} to 3D scene`);
+    placePart(partId, { ...ui.placementMarker }, { x: 0, y: 0, z: p.transform.rotation });
+    showToast(`Added ${p.name} to 3D scene at marker (${ui.placementMarker.x}, ${ui.placementMarker.y}, ${ui.placementMarker.z})`);
   };
 
   const handleDropPartOnCanvas = (e: React.DragEvent<HTMLDivElement>) => {
@@ -801,13 +1191,14 @@ export default function Canvas3D(): JSX.Element {
       return;
     }
 
-    // Check if dragging a Part
+    // Check if dragging a Part — always lands exactly on the placement marker,
+    // not wherever the cursor was dropped, so placement stays precise.
     const partId = e.dataTransfer.getData("partId") || e.dataTransfer.getData("text/plain");
     if (partId) {
       const p = project.parts.find((x) => x.id === partId);
       if (!p) return;
-      placePart(partId, dropPos, { x: 0, y: 0, z: p.transform.rotation });
-      showToast(`Dragged & placed ${p.name} in 3D scene!`);
+      placePart(partId, { ...ui.placementMarker }, { x: 0, y: 0, z: p.transform.rotation });
+      showToast(`Dragged & placed ${p.name} at marker (${ui.placementMarker.x}, ${ui.placementMarker.y}, ${ui.placementMarker.z})`);
     }
   };
 
@@ -818,17 +1209,12 @@ export default function Canvas3D(): JSX.Element {
     if (!v) return;
 
     if (preset === "reset") {
-      v.targetGoal.set(0, 0, 0);
-      v.target.set(0, 0, 0);
-      v.sphericalGoal.radius = 600;
-      v.sphericalGoal.phi = Math.PI / 3;
-      v.sphericalGoal.theta = Math.PI / 4;
-      v.spherical.radius = 600;
-      v.spherical.phi = Math.PI / 3;
-      v.spherical.theta = Math.PI / 4;
-      v.applyCameraImmediately();
       handleExplodeChange(0);
       setAutoRotate(false);
+      if (v.group) {
+        const box = new THREE.Box3().setFromObject(v.group);
+        if (!box.isEmpty()) v.frame(box, { preserveAngle: false });
+      }
       showToast("Viewport reset to original view!");
       return;
     }
@@ -836,12 +1222,10 @@ export default function Canvas3D(): JSX.Element {
     if (preset === "fit") {
       if (v.group) {
         const box = new THREE.Box3().setFromObject(v.group);
-        if (!box.isEmpty()) v.fit(box.getBoundingSphere(new THREE.Sphere()).radius);
+        if (!box.isEmpty()) v.frame(box, { preserveAngle: true });
       }
       return;
     }
-
-    v.targetGoal.set(0, 0, 0);
 
     switch (preset) {
       case "iso":
@@ -894,6 +1278,36 @@ export default function Canvas3D(): JSX.Element {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* ---- Placement Marker: exact target for the next placed part ---- */}
+        <div className="wk-hud-glass" style={{ marginTop: 8, gap: 10 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--wk-ink-faint)" }}>
+            Marker
+          </span>
+          <button
+            type="button"
+            className={`wk-3d-btn ${markerPickMode ? "wk-3d-btn--active" : ""}`}
+            onClick={() => setMarkerPickMode((v) => !v)}
+            title="Click in the 3D scene to move the placement marker to that point"
+          >
+            🎯 {markerPickMode ? "Click scene to place…" : "Pick in Scene"}
+          </button>
+          <div style={{ width: 1, height: 20, background: "var(--wk-border)" }} />
+          {(["x", "y", "z"] as const).map((axis) => (
+            <label key={axis} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--wk-ink-soft)" }}>
+              {axis.toUpperCase()}
+              <input
+                type="number"
+                className="wk-input wk-input--num"
+                value={ui.placementMarker[axis]}
+                onChange={(e) =>
+                  setPlacementMarker({ ...ui.placementMarker, [axis]: Number(e.target.value) || 0 })
+                }
+                style={{ width: 56, flex: "0 0 56px" }}
+              />
+            </label>
+          ))}
         </div>
       </div>
 
@@ -1052,6 +1466,29 @@ export default function Canvas3D(): JSX.Element {
       {/* ---- Bottom-Center Floating Viewport Toolbar ---- */}
       <div className="wk-3d-toolbar">
         <div className="wk-hud-glass" style={{ gap: 14 }}>
+          {/* Transform Tool Buttons (Blender-style Select / Move / Rotate / Scale) */}
+          <div className="wk-3d-btn-group">
+            {(
+              [
+                { id: "move", label: "⬌ Move" },
+                { id: "rotate", label: "⟳ Rotate" },
+                { id: "scale", label: "⤡ Scale" },
+              ] as { id: TransformTool; label: string }[]
+            ).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`wk-3d-btn ${transformTool === t.id ? "wk-3d-btn--active" : ""}`}
+                onClick={() => setTransformTool(t.id)}
+                title={`Switch to ${t.id} tool for the selected object`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ width: 1, height: 20, background: "var(--wk-border)" }} />
+
           {/* View Preset Buttons */}
           <div className="wk-3d-btn-group">
             <button

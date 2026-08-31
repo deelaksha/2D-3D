@@ -5,27 +5,19 @@
  */
 import { store } from "./store";
 import { uid } from "../model/ids";
-import {
-  identityTransform,
-  makeConnector,
-  makePart,
-  makeShape,
-} from "../model/defaults";
+import { makeConnector, makePart } from "../model/defaults";
 import { connectorFeature, connectorRole, defaultRole } from "../connectors/feature";
 import { complementType } from "../connectors/compat";
 import type {
   BooleanOp,
   Connection,
-  ConnectionStatus,
   Connector,
   ConnectorPattern,
   ConnectorRole,
   ConnectorType,
-  Constraint,
   Dimension,
   Material,
   Part,
-  PartGroup,
   Placement,
   Shape,
   Vec2,
@@ -291,25 +283,6 @@ export function addModifier(
     if (p) p.modifiers.push({ id: modId, op, shape, name });
   });
   return modId;
-}
-
-/** Convenience: cut a hole (subtract) into a part at a local position. */
-export function addHole(partId: string, position: Vec2, diameter = 10): string {
-  const shape = makeShape("circle", {
-    x: position.x - diameter / 2,
-    y: position.y - diameter / 2,
-    width: diameter,
-    height: diameter,
-  });
-  return addModifier(partId, "subtract", shape, "hole");
-}
-
-export function updateModifier(partId: string, modId: string, patch: Partial<{ op: BooleanOp; shape: Shape; name: string }>): void {
-  store.commit("Edit cutout", (d) => {
-    const p = d.parts.find((p) => p.id === partId);
-    const m = p?.modifiers.find((m) => m.id === modId);
-    if (m) Object.assign(m, patch);
-  });
 }
 
 export function deleteModifier(partId: string, modId: string): void {
@@ -623,17 +596,6 @@ export function toggleJointRole(connectorId: string): void {
   setConnectorRole(connectorId, newRole);
 }
 
-/** 1-Click Toggle for modifier shape: subtract (Hole cutout) <-> union (Fill protrusion) */
-export function toggleModifierOp(partId: string, modifierId: string): void {
-  store.commit("Toggle Cutout / Plug", (d) => {
-    const p = d.parts.find((x) => x.id === partId);
-    const m = p?.modifiers.find((x) => x.id === modifierId);
-    if (m) {
-      m.op = m.op === "subtract" ? "union" : "subtract";
-    }
-  });
-}
-
 /**
  * Convert any drawn shape modifier (or shape outline) on a part into a physical Connector joint,
  * and optionally auto-generate its matching receiver socket on targetPartId.
@@ -883,45 +845,6 @@ export function deleteConnector(connectorId: string): void {
   });
 }
 
-/* ---- constraints -------------------------------------------------- */
-
-export function addConstraint(partId: string, constraint: Omit<Constraint, "id">): string {
-  const id = uid("cst");
-  store.commit("Add constraint", (d) => {
-    const p = d.parts.find((p) => p.id === partId);
-    if (p) p.constraints.push({ id, ...constraint });
-  });
-  return id;
-}
-
-export function deleteConstraint(partId: string, constraintId: string): void {
-  store.commit("Delete constraint", (d) => {
-    const p = d.parts.find((p) => p.id === partId);
-    if (p) p.constraints = p.constraints.filter((c) => c.id !== constraintId);
-  });
-}
-
-/* ---- groups ------------------------------------------------------- */
-
-export function addGroup(name: string): string {
-  const id = uid("grp");
-  store.commit("Add group", (d) => {
-    d.groups.push({ id, name, order: d.groups.length, collapsed: false, parentId: null });
-  });
-  return id;
-}
-
-export function updateGroup(id: string, patch: Partial<PartGroup>): void {
-  store.commit("Edit group", (d) => {
-    const g = d.groups.find((g) => g.id === id);
-    if (g) Object.assign(g, patch);
-  });
-}
-
-export function setPartGroup(partId: string, groupId: string | null): void {
-  updatePart(partId, { groupId }, "Group part");
-}
-
 /** Rebase a child's local outline into its destination part's local plane. */
 function rebaseShapeToPart(shape: Shape, from: Part, to: Part): Shape {
   const copy = structuredClone(shape);
@@ -988,30 +911,10 @@ export function addDimension(dim: Omit<Dimension, "id">): string {
   return id;
 }
 
-export function updateDimension(id: string, patch: Partial<Dimension>): void {
-  store.commit("Edit dimension", (d) => {
-    const dim = d.dimensions.find((x) => x.id === id);
-    if (dim) Object.assign(dim, patch);
-  });
-}
-
-export function deleteDimension(id: string): void {
-  store.commit("Delete dimension", (d) => {
-    d.dimensions = d.dimensions.filter((x) => x.id !== id);
-  });
-}
-
 /* ---- materials ---------------------------------------------------- */
 
 export function addMaterial(material: Material): void {
   store.commit("Add material", (d) => d.materials.push(material));
-}
-
-export function updateMaterial(id: string, patch: Partial<Material>): void {
-  store.commit("Edit material", (d) => {
-    const m = d.materials.find((m) => m.id === id);
-    if (m) Object.assign(m, patch);
-  });
 }
 
 /* ---- assembly: placements + connections --------------------------- */
@@ -1071,16 +974,6 @@ export function addConnection(
     d.assembly.connections.push({ ...conn, id });
   });
   return id;
-}
-
-export function setConnectionStatus(id: string, status: ConnectionStatus, reason?: string): void {
-  store.commit("Update connection", (d) => {
-    const c = d.assembly.connections.find((c) => c.id === id);
-    if (c) {
-      c.status = status;
-      c.reason = reason;
-    }
-  });
 }
 
 export function removeConnection(id: string): void {

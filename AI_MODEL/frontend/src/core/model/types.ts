@@ -439,16 +439,3 @@ export const SCHEMA_VERSION = 1;
 /* ------------------------------------------------------------------ */
 
 export type IssueLevel = "ok" | "warning" | "error";
-
-export interface ValidationIssue {
-  level: IssueLevel;
-  code: string;
-  message: string;
-  /** Related part/connector/connection ids for click-to-focus. */
-  refs?: ID[];
-}
-
-export interface ValidationReport {
-  level: IssueLevel;
-  issues: ValidationIssue[];
-}

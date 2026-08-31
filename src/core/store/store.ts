@@ -48,6 +48,8 @@ export interface UIState {
   paletteScope: string | null;
   /** Part currently being dragged from the parts list into the 3D scene. */
   draggingPartId: string | null;
+  /** 3D placement marker — the exact spot the next part gets placed at. */
+  placementMarker: { x: number; y: number; z: number };
   statusMessage: string;
   statusLevel: StatusLevel;
   /** Ids of tools recently used, most-recent first (for the palette). */
@@ -83,6 +85,7 @@ function initialUI(): UIState {
     commandPaletteOpen: false,
     paletteScope: null,
     draggingPartId: null,
+    placementMarker: { x: 0, y: 0, z: 0 },
     statusMessage: "Ready",
     statusLevel: "info",
     recentToolIds: [],

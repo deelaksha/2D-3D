@@ -31,9 +31,3 @@ export function roundForUnit(valueMm: number, unit: Unit): number {
 export function formatLength(valueMm: number, unit: Unit): string {
   return `${roundForUnit(valueMm, unit)} ${unit}`;
 }
-
-export const UNIT_LABELS: Record<Unit, string> = {
-  mm: "Millimetres",
-  cm: "Centimetres",
-  inch: "Inches",
-};
