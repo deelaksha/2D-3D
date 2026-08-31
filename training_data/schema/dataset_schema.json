@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CompleteDatasetItem",
+  "description": "JSON Schema for 17-step Parametric 2D-to-3D Puzzle Lifecycle Dataset Items",
+  "type": "object",
+  "required": [
+    "itemId",
+    "version",
+    "metadata",
+    "userRequirement",
+    "pieces",
+    "interfaces",
+    "connections",
+    "puzzle",
+    "assembly",
+    "constraints",
+    "validation",
+    "failureReasons"
+  ],
+  "properties": {
+    "itemId": { "type": "string" },
+    "version": { "type": "string", "const": "1.0.0" },
+    "metadata": {
+      "type": "object",
+      "required": ["createdAt", "license"],
+      "properties": {
+        "createdAt": { "type": "string" },
+        "license": { "type": "string" }
+      }
+    },
+    "userRequirement": {
+      "type": "object",
+      "required": ["prompt"],
+      "properties": {
+        "prompt": { "type": "string" },
+        "targetDifficulty": { "type": "string", "enum": ["easy", "medium", "hard", "expert"] }
+      }
+    },
+    "source2DDrawingPath": { "type": "string" },
+    "pieces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["pieceId", "name", "designParameters", "localPolygon2D"],
+        "properties": {
+          "pieceId": { "type": "string" },
+          "name": { "type": "string" },
+          "designParameters": {
+            "type": "object",
+            "required": ["widthMm", "heightMm", "thicknessMm"],
+            "properties": {
+              "widthMm": { "type": "number", "minimum": 0.1 },
+              "heightMm": { "type": "number", "minimum": 0.1 },
+              "thicknessMm": { "type": "number", "minimum": 0.1 }
+            }
+          }
+        }
+      }
+    },
+    "assembly": {
+      "type": "object",
+      "required": ["pieceTransforms", "assemblySequence"],
+      "properties": {
+        "pieceTransforms": { "type": "object" },
+        "assemblySequence": { "type": "array" }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": ["isValid", "overallScore"],
+      "properties": {
+        "isValid": { "type": "boolean" },
+        "overallScore": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+      }
+    }
+  }
+}
