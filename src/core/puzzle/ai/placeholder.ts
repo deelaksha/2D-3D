@@ -5,6 +5,7 @@
  */
 import type { AIPredictionRequest, AIPredictionResponse, PuzzleAssemblyAI } from "./types";
 import type { PuzzleAssembly } from "../assembly/types";
+import type { PuzzlePiece } from "../piece/types";
 import { uid } from "@/core/model/ids";
 
 export class PlaceholderPuzzleAI implements PuzzleAssemblyAI {
@@ -13,7 +14,7 @@ export class PlaceholderPuzzleAI implements PuzzleAssemblyAI {
     const emptyAssembly: PuzzleAssembly = {
       id: uid("asm_predicted_"),
       name: "Placeholder AI Predicted Assembly",
-      placements: request.pieces.map((p, idx) => ({
+      placements: request.pieces.map((p: PuzzlePiece, idx: number) => ({
         pieceId: p.id,
         position: { x: idx * 50, y: 0, z: 0 },
         rotation: { x: 0, y: 0, z: 0, w: 1 },
@@ -31,10 +32,10 @@ export class PlaceholderPuzzleAI implements PuzzleAssemblyAI {
   }
 
   async predictJoiningAngle(
-    sourcePiece: any,
+    sourcePiece: unknown,
     sourceInterfaceId: string,
-    targetPiece: any,
-    targetInterfaceId: string,
+    targetPiece: unknown,
+    targetInterfaceId: string
   ): Promise<number> {
     // TODO(ML_FUTURE): Predict optimal 3D joining angle using geometric feature embeddings.
     return 90.0; // Default 90 degree joining angle fallback

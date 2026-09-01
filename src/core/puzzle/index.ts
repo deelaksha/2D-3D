@@ -118,22 +118,65 @@ export * from "./optimization";
 // 35. End-to-End Puzzle Pipeline Integration (Phase 22)
 export * from "./pipeline";
 
+// 36. Real-File Ingestion & Normalization (Steps 26–29)
+export * from "./ingestion";
 
+// 37. Feature Extraction & Reconstruction (Steps 30–34)
+export * from "./reconstruction";
 
+// 38. Ground-Truth Evaluation & Benchmark Harness (Steps 35–40)
+export * from "./benchmark";
 
+// 39. Synthetic Puzzle Generator (Phase 42)
+export * from "./generator";
 
+// 40. Piece Segmentation Architecture (Phase 44)
+export * from "./segmentation";
 
+// 41. Interface Recognition Architecture (Phase 45)
+export * from "./interfacerecognition";
 
+// 42. Connection Prediction Subsystem (Phase 46)
+export * from "./connectionprediction";
 
+// 43. Parametric Feature Prediction Subsystem (Phase 47)
+export * from "./parameterprediction";
 
+// 44. Design Example Retrieval Architecture (Phase 48)
+export * from "./retrievalsystem";
 
+// 45. AI Design Planner (Phase 49)
+export * from "./designplanner";
 
+// 46. Master AI Pipeline Integration & Rejection Diagnostics (Phase 50)
+export * from "./aipipeline";
 
+// 47. AI Design Validation Gate (Phase 51)
+export * from "./aivalidationgate";
 
+// 48. AI-Assisted Design Repair Loop Subsystem (Phase 52)
+export * from "./airepair";
 
+// 49. Multi-Candidate Design Generation System (Phase 53)
+export * from "./multicandidate";
 
+// 50. Candidate Optimization Integration (Phase 54)
+export * from "./candidateoptimization";
 
+// 51. Human-Feedback Architecture (Phase 55)
+export * from "./feedback";
 
+// 52. Comprehensive AI Evaluation Framework (Phase 56)
+export * from "./aievaluation";
 
+// 53. ML Training Infrastructure (Phase 57)
+export * from "./mltraining";
 
+// 54. First Real ML Baseline Model (Phase 58)
+export * from "./firstmlmodel";
 
+// 55. Master Hybrid AI Architecture Integration (Phase 59)
+export * from "./hybridpipeline";
+
+// 56. Production Readiness System Subsystem (Phase 60)
+export * from "./production";

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "id": "proj_synth_1",
+    "name": "Synthetic WoodKit Project",
+    "displayUnit": "mm"
+  },
+  "parts": [
+    {
+      "id": "part_1",
+      "name": "Wall 1",
+      "width": 100,
+      "height": 80,
+      "thickness": 3.0
+    }
+  ],
+  "materials": [],
+  "groups": [],
+  "dimensions": [],
+  "assembly": {
+    "placements": [],
+    "connections": []
+  }
+}
