@@ -6,7 +6,12 @@ import type { Vec2 } from "@/core/model/types";
 import type { ImportDiagnostics } from "./diagnostics";
 import type { CanonicalPiece, CanonicalPuzzle } from "../canonical/types";
 import type { DetectedFileType, ExtractedContour2D, NormalizedRepresentation, RawFilePayload, SegmentedPiece2D } from "./types";
-import { createCanonicalPiece, createEmptyCanonicalPuzzle } from "../canonical/defaults";
+import {
+  createCanonicalConnection,
+  createCanonicalInterface,
+  createCanonicalPiece,
+  createEmptyCanonicalPuzzle,
+} from "../canonical/defaults";
 
 const vec2 = (x: number, y: number): Vec2 => ({ x, y });
 
@@ -109,6 +114,8 @@ export class PuzzleImporter {
     puzzle.metadata.id = projectData.meta?.id || "puz_project_1";
 
     const pieces: CanonicalPiece[] = [];
+    const interfaces: any[] = [];
+    const connections: any[] = [];
     const contours: ExtractedContour2D[] = [];
     const segmentedPieces: SegmentedPiece2D[] = [];
 
@@ -120,6 +127,22 @@ export class PuzzleImporter {
       const cPiece = createCanonicalPiece(part.name || "Part", { width: w, height: h, depth: t }, t);
       cPiece.id = part.id;
       pieces.push(cPiece);
+
+      for (const conn of part.connectors || []) {
+        cPiece.interfaceIds.push(conn.id);
+        const iface = createCanonicalInterface(
+          part.id,
+          conn.name || conn.type,
+          { x: conn.position?.x || 0, y: conn.position?.y || 0 },
+          { x: 0, y: 1 }
+        );
+        iface.id = conn.id;
+        iface.interfaceType = conn.type === "slot" ? "slot" : "tab";
+        iface.genderRole = conn.type === "slot" ? "receiver" : "insert";
+        iface.profile.width = conn.width || 20;
+        iface.profile.depth = conn.depth || 5;
+        interfaces.push(iface);
+      }
 
       const pts = [vec2(0, 0), vec2(w, 0), vec2(w, h), vec2(0, h)];
       const contour: ExtractedContour2D = {
@@ -143,8 +166,23 @@ export class PuzzleImporter {
       });
     }
 
+    for (const c of projectData.assembly?.connections || []) {
+      const canonicalConn = createCanonicalConnection(
+        c.fromConnectorId,
+        c.toConnectorId,
+        c.joiningAngleDeg ?? 90.0
+      );
+      canonicalConn.id = c.id;
+      connections.push(canonicalConn);
+    }
+
     puzzle.pieces = pieces;
-    diagnostics.info("PROJECT_JSON_CONVERTED", `Converted WoodKit Project with ${pieces.length} part(s) to CanonicalPuzzle.`);
+    puzzle.interfaces = interfaces;
+    puzzle.connections = connections;
+    if (projectData.assembly?.placements) {
+      (puzzle as any).placements = projectData.assembly.placements;
+    }
+    diagnostics.info("PROJECT_JSON_CONVERTED", `Converted WoodKit Project with ${pieces.length} part(s), ${interfaces.length} interface(s), and ${connections.length} connection(s) to CanonicalPuzzle.`);
 
     const normalized: NormalizedRepresentation = {
       sourceFilename: filename,

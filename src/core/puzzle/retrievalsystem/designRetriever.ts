@@ -1,9 +1,22 @@
 /**
- * Design Example Retrieval Engine & In-Memory Vector Store Abstraction (Phase 48).
+ * Design Example Retrieval Engine & In-Memory Vector Store Abstraction (Phase 70 Upgrade).
+ *
+ * Provides dual similarity search (structured multi-attribute + dense vector cosine),
+ * returns rich matching features and differences, and strictly enforces reference-only
+ * anti-cloning safeguards for downstream AI design generation.
  */
-import type { DesignEmbedding, DesignQueryFilters, DesignRetrievalResult, DesignRetrievalSimilarity, RetrievedDesign } from "./types";
+import type {
+  AdvancedDesignQuery,
+  DesignEmbedding,
+  DesignQueryFilters,
+  DesignRetrievalResult,
+  DesignRetrievalSimilarity,
+  RetrievedDesign,
+} from "./types";
 import type { CanonicalPuzzle } from "../canonical/types";
 import { createCanonicalPiece, createEmptyCanonicalPuzzle } from "../canonical/defaults";
+import { DesignFeatureExtractor } from "./featureExtractor";
+import { DesignSimilarityEngine } from "./similarityEngine";
 
 export interface DesignRepository {
   storeDesign(puzzle: CanonicalPuzzle): Promise<void>;
@@ -13,65 +26,86 @@ export interface DesignRepository {
 }
 
 /**
- * Design Embedding Engine.
- * Computes 128-dimensional dense feature vectors and Cosine Similarity.
+ * Design Embedding Engine (Backwards compatible with Phase 48).
  */
 export class DesignEmbeddingEngine {
-  /**
-   * Computes a 128-dimensional dense feature vector for a CanonicalPuzzle.
-   */
   static computeEmbedding(puzzle: CanonicalPuzzle): DesignEmbedding {
-    const values = new Array(128).fill(0.0);
-
-    const pieceCount = puzzle.pieces.length;
-    const connCount = puzzle.connections.length;
-
-    // Feature normalization
-    values[0] = Math.min(1.0, pieceCount / 20.0);
-    values[1] = Math.min(1.0, connCount / 30.0);
-
-    // Dimension features
-    let avgW = 0, avgH = 0;
-    puzzle.pieces.forEach((p) => {
-      avgW += p.dimensions.width;
-      avgH += p.dimensions.height;
-    });
-    values[2] = Math.min(1.0, (avgW / Math.max(1, pieceCount)) / 500.0);
-    values[3] = Math.min(1.0, (avgH / Math.max(1, pieceCount)) / 500.0);
-
-    // Populate remaining vector dimensions deterministically
-    for (let i = 4; i < 128; i++) {
-      values[i] = Math.abs(Math.sin((i + pieceCount * 7 + connCount * 13)));
-    }
-
+    const features = DesignFeatureExtractor.extractFeatures(puzzle);
     return {
       vectorId: `emb_${puzzle.metadata.id || "design"}`,
       dimensions: 128,
-      values,
+      values: features.embeddingVector,
     };
   }
 
-  /**
-   * Computes Cosine Similarity between two 128-dim dense embedding vectors.
-   */
   static computeCosineSimilarity(vecA: number[], vecB: number[]): number {
-    let dotProduct = 0.0;
-    let normA = 0.0;
-    let normB = 0.0;
-
-    for (let i = 0; i < Math.min(vecA.length, vecB.length); i++) {
-      dotProduct += vecA[i] * vecB[i];
-      normA += vecA[i] * vecA[i];
-      normB += vecB[i] * vecB[i];
-    }
-
-    const denom = Math.sqrt(normA) * Math.sqrt(normB);
-    return denom > 0 ? dotProduct / denom : 0.0;
+    return DesignSimilarityEngine.computeCosineSimilarity(vecA, vecB);
   }
 }
 
 /**
- * In-Memory Design Repository (Abstraction over Vector DBs like Qdrant / FAISS).
+ * Strict Anti-Cloning Protection System.
+ * Ensures downstream generative AI systems never blindly copy a reference design.
+ */
+export class ReferenceDesignProtector {
+  /**
+   * Asserts that a newly generated puzzle is NOT an unauthorized clone of a reference design.
+   * Throws an error if cloning is detected.
+   */
+  public static assertNotCloned(
+    reference: CanonicalPuzzle,
+    candidate: CanonicalPuzzle
+  ): { isDifferent: boolean; auditReasons: string[] } {
+    const auditReasons: string[] = [];
+
+    // 1. Identical ID check
+    if (reference.metadata.id && candidate.metadata.id && reference.metadata.id === candidate.metadata.id) {
+      throw new Error(
+        `[ANTI-CLONING VIOLATION] Candidate design shares identical metadata ID '${candidate.metadata.id}' with reference design.`
+      );
+    }
+
+    // 2. Exact Piece ID overlap check
+    const refPieceIds = new Set(reference.pieces.map((p) => p.id));
+    const candPieceIds = new Set(candidate.pieces.map((p) => p.id));
+    let identicalIdCount = 0;
+    for (const cid of candPieceIds) {
+      if (refPieceIds.has(cid)) identicalIdCount++;
+    }
+    if (identicalIdCount > 0 && identicalIdCount === reference.pieces.length) {
+      throw new Error(
+        `[ANTI-CLONING VIOLATION] Candidate design duplicates all piece IDs from reference design.`
+      );
+    }
+
+    // 3. Exact Piece count and exact dimensions duplication check
+    if (reference.pieces.length === candidate.pieces.length) {
+      let exactMatchCount = 0;
+      for (let i = 0; i < reference.pieces.length; i++) {
+        const rp = reference.pieces[i];
+        const cp = candidate.pieces[i];
+        if (
+          rp.dimensions?.width === cp.dimensions?.width &&
+          rp.dimensions?.height === cp.dimensions?.height &&
+          rp.thickness === cp.thickness
+        ) {
+          exactMatchCount++;
+        }
+      }
+      if (exactMatchCount === reference.pieces.length && reference.metadata.name === candidate.metadata.name) {
+        throw new Error(
+          `[ANTI-CLONING VIOLATION] Candidate design is an identical geometric replica of reference '${reference.metadata.name}'.`
+        );
+      }
+    }
+
+    auditReasons.push("Candidate design confirmed as a legitimately modified parametric variation.");
+    return { isDifferent: true, auditReasons };
+  }
+}
+
+/**
+ * In-Memory Design Repository seeded with rich multi-attribute parametric templates.
  */
 export class InMemoryDesignRepository implements DesignRepository {
   private designs = new Map<string, CanonicalPuzzle>();
@@ -81,18 +115,28 @@ export class InMemoryDesignRepository implements DesignRepository {
   }
 
   private seedDefaultTemplates(): void {
-    // 1. Simple 3-Piece Box Template
+    // 1. Simple 3-Piece Interlocking Box Template
     const boxPuz = createEmptyCanonicalPuzzle("3-Piece Interlocking Box");
     boxPuz.metadata.id = "tpl_box_3pc";
+    boxPuz.metadata.description = "A compact 3-piece wooden or cardboard storage box with finger joints and tab-slot interfaces.";
+    boxPuz.metadata.tags = ["box", "storage", "finger_joint", "interlocking", "easy", "rectangular"];
+    (boxPuz.metadata as any).difficulty = "easy";
     boxPuz.pieces.push(
       createCanonicalPiece("Base Plate", { width: 150, height: 150, depth: 3.0 }, 3.0),
       createCanonicalPiece("Side Left", { width: 150, height: 100, depth: 3.0 }, 3.0),
       createCanonicalPiece("Side Right", { width: 150, height: 100, depth: 3.0 }, 3.0)
     );
+    (boxPuz.connections as any).push(
+      { id: "conn_box_1", connectionType: "tab_slot", pieceAId: boxPuz.pieces[0].id, pieceBId: boxPuz.pieces[1].id, joiningAngleDeg: 90.0 },
+      { id: "conn_box_2", connectionType: "tab_slot", pieceAId: boxPuz.pieces[0].id, pieceBId: boxPuz.pieces[2].id, joiningAngleDeg: 90.0 }
+    );
 
     // 2. 5-Piece Desktop Chair Template
     const chairPuz = createEmptyCanonicalPuzzle("5-Piece Desktop Chair");
     chairPuz.metadata.id = "tpl_chair_5pc";
+    chairPuz.metadata.description = "An architectural miniature chair with cross-braced legs and mortise-tenon planar joints.";
+    chairPuz.metadata.tags = ["chair", "furniture", "desktop", "mortise_tenon", "medium", "architectural"];
+    (chairPuz.metadata as any).difficulty = "medium";
     chairPuz.pieces.push(
       createCanonicalPiece("Seat Plate", { width: 120, height: 120, depth: 3.0 }, 3.0),
       createCanonicalPiece("Back Rest", { width: 120, height: 180, depth: 3.0 }, 3.0),
@@ -100,9 +144,56 @@ export class InMemoryDesignRepository implements DesignRepository {
       createCanonicalPiece("Leg Rear Left", { width: 40, height: 100, depth: 3.0 }, 3.0),
       createCanonicalPiece("Leg Rear Right", { width: 40, height: 100, depth: 3.0 }, 3.0)
     );
+    (chairPuz.connections as any).push(
+      { id: "conn_ch_1", connectionType: "mortise_tenon", pieceAId: chairPuz.pieces[0].id, pieceBId: chairPuz.pieces[1].id, joiningAngleDeg: 90.0 },
+      { id: "conn_ch_2", connectionType: "mortise_tenon", pieceAId: chairPuz.pieces[0].id, pieceBId: chairPuz.pieces[2].id, joiningAngleDeg: 90.0 },
+      { id: "conn_ch_3", connectionType: "mortise_tenon", pieceAId: chairPuz.pieces[0].id, pieceBId: chairPuz.pieces[3].id, joiningAngleDeg: 90.0 },
+      { id: "conn_ch_4", connectionType: "mortise_tenon", pieceAId: chairPuz.pieces[0].id, pieceBId: chairPuz.pieces[4].id, joiningAngleDeg: 90.0 }
+    );
+
+    // 3. 6-Piece Burr Interlocking Cube Template (Hard/Expert)
+    const burrPuz = createEmptyCanonicalPuzzle("6-Piece Burr Puzzle Cube");
+    burrPuz.metadata.id = "tpl_burr_6pc";
+    burrPuz.metadata.description = "A complex interlocking 3D burr puzzle cube requiring coordinated sliding moves and tight tolerances.";
+    burrPuz.metadata.tags = ["burr", "cube", "interlocking", "puzzle", "sliding", "hard", "mechanical"];
+    (burrPuz.metadata as any).difficulty = "hard";
+    for (let i = 1; i <= 6; i++) {
+      burrPuz.pieces.push(createCanonicalPiece(`Burr Key ${i}`, { width: 90, height: 30, depth: 30 }, 30.0));
+    }
+    for (let i = 0; i < 5; i++) {
+      (burrPuz.connections as any).push({
+        id: `conn_burr_${i}`,
+        connectionType: "sliding_interlock",
+        behavior: "INTERLOCK",
+        pieceAId: burrPuz.pieces[i].id,
+        pieceBId: burrPuz.pieces[i + 1].id,
+        joiningAngleDeg: 90.0,
+      });
+    }
+
+    // 4. 2-Piece Minimal Hinge Stand (Easy)
+    const standPuz = createEmptyCanonicalPuzzle("2-Piece Folding Phone Stand");
+    standPuz.metadata.id = "tpl_stand_2pc";
+    standPuz.metadata.description = "A portable folding desktop easel phone stand with a continuous hinge joint.";
+    standPuz.metadata.tags = ["stand", "phone", "folding", "hinge", "minimal", "easy"];
+    (standPuz.metadata as any).difficulty = "easy";
+    standPuz.pieces.push(
+      createCanonicalPiece("Back Support", { width: 80, height: 140, depth: 3.0 }, 3.0),
+      createCanonicalPiece("Base Cradle", { width: 80, height: 100, depth: 3.0 }, 3.0)
+    );
+    (standPuz.connections as any).push({
+      id: "conn_stand_1",
+      connectionType: "hinge",
+      behavior: "HINGE",
+      pieceAId: standPuz.pieces[0].id,
+      pieceBId: standPuz.pieces[1].id,
+      joiningAngleDeg: 60.0,
+    });
 
     this.designs.set(boxPuz.metadata.id, boxPuz);
     this.designs.set(chairPuz.metadata.id, chairPuz);
+    this.designs.set(burrPuz.metadata.id, burrPuz);
+    this.designs.set(standPuz.metadata.id, standPuz);
   }
 
   async storeDesign(puzzle: CanonicalPuzzle): Promise<void> {
@@ -130,7 +221,7 @@ export class InMemoryDesignRepository implements DesignRepository {
 }
 
 /**
- * Design Retriever Engine.
+ * Upgraded Design Retriever Engine (Phase 70).
  */
 export class DesignRetriever {
   private repository: DesignRepository;
@@ -140,52 +231,106 @@ export class DesignRetriever {
   }
 
   /**
-   * Retrieves reference canonical puzzle designs matching query filters & vector similarity ranking.
+   * Retrieves reference canonical puzzle designs matching query filters & dual similarity ranking.
    */
-  async retrieveDesigns(filters: DesignQueryFilters, topK: number = 3): Promise<DesignRetrievalResult> {
+  async retrieveDesigns(
+    queryInput: DesignQueryFilters | AdvancedDesignQuery,
+    topK: number = 3
+  ): Promise<DesignRetrievalResult> {
     const startTime = Date.now();
     const queryId = `qry_${Date.now()}`;
+
+    // Normalize input to AdvancedDesignQuery
+    const query = this.normalizeQuery(queryInput);
+    const limit = query.topK ?? topK;
 
     const candidates = await this.repository.listDesigns();
     const retrieved: RetrievedDesign[] = [];
 
-    // Synthesize target query embedding from filters
-    const queryPuzzle = createEmptyCanonicalPuzzle("Query Puzzle");
-    const targetCount = filters.targetPieceCount || 3;
-    for (let i = 0; i < targetCount; i++) {
-      queryPuzzle.pieces.push(createCanonicalPiece(`Q${i}`, { width: 100, height: 100, depth: 3.0 }, 3.0));
-    }
-    const queryEmb = DesignEmbeddingEngine.computeEmbedding(queryPuzzle);
+    for (const cand of candidates) {
+      // 1. Extract full 8-dimensional normalized design features
+      const features = DesignFeatureExtractor.extractFeatures(cand);
 
-    candidates.forEach((cand) => {
-      const candEmb = DesignEmbeddingEngine.computeEmbedding(cand);
-      const similarityScore = DesignEmbeddingEngine.computeCosineSimilarity(queryEmb.values, candEmb.values);
+      // 2. Evaluate dual similarity (structured multi-attribute + dense embedding)
+      const simEval = DesignSimilarityEngine.evaluateSimilarity(query, features);
+
+      if (query.minSimilarity !== undefined && simEval.overallScore < query.minSimilarity) {
+        continue;
+      }
 
       const sim: DesignRetrievalSimilarity = {
-        overallScore: similarityScore,
-        topologyScore: similarityScore,
-        dimensionScore: similarityScore,
-        connectionTypeScore: similarityScore,
+        overallScore: simEval.overallScore,
+        structuredScore: simEval.structuredScore,
+        embeddingScore: simEval.embeddingScore,
+        topologyScore: simEval.topologyScore,
+        dimensionScore: simEval.dimensionScore,
+        connectionTypeScore: simEval.connectionTypeScore,
+        keywordScore: simEval.keywordScore,
+        difficultyScore: simEval.difficultyScore,
+      };
+
+      const embedding: DesignEmbedding = {
+        vectorId: `emb_${cand.metadata.id}`,
+        dimensions: 128,
+        values: features.embeddingVector,
       };
 
       retrieved.push({
         designId: cand.metadata.id,
+        name: cand.metadata.name,
         canonicalPuzzle: cand,
+        features,
         similarity: sim,
-        embedding: candEmb,
-        isReferenceOnly: true, // Strict Invariant: MUST NOT be blindly copied
+        embedding,
+        matchingFeatures: simEval.matchingFeatures,
+        differences: simEval.differences,
+        isReferenceOnly: true, // STRICT INVARIANT: Reference only!
+        referenceAdaptationGuidance: simEval.referenceAdaptationGuidance,
       });
-    });
+    }
 
-    // Rank by similarity score descending
+    // Rank by composite similarity score descending
     retrieved.sort((a, b) => b.similarity.overallScore - a.similarity.overallScore);
-    const topRanked = retrieved.slice(0, topK);
+    const topRanked = retrieved.slice(0, limit);
 
     return {
       queryId,
       retrievedDesigns: topRanked,
       topMatch: topRanked[0],
+      totalCandidateCount: candidates.length,
       processingDurationMs: Date.now() - startTime,
+    };
+  }
+
+  /**
+   * Translates legacy or partial queries into AdvancedDesignQuery.
+   */
+  private normalizeQuery(input: DesignQueryFilters | AdvancedDesignQuery): AdvancedDesignQuery {
+    const adv = input as AdvancedDesignQuery;
+    const legacy = input as DesignQueryFilters;
+
+    const naturalLanguagePrompt =
+      adv.naturalLanguagePrompt || legacy.textQuery || undefined;
+
+    const pieceCount =
+      adv.pieceCount !== undefined ? adv.pieceCount : legacy.targetPieceCount;
+
+    const dimensions =
+      adv.dimensions || (legacy.targetDimensions ? { ...legacy.targetDimensions } : undefined);
+
+    const interfaceTypes =
+      adv.interfaceTypes || legacy.connectionTypes || undefined;
+
+    const difficulty =
+      adv.difficulty || legacy.difficulty || undefined;
+
+    return {
+      ...adv,
+      naturalLanguagePrompt,
+      pieceCount,
+      dimensions,
+      interfaceTypes,
+      difficulty,
     };
   }
 }

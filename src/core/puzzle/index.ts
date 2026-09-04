@@ -180,3 +180,57 @@ export * from "./hybridpipeline";
 
 // 56. Production Readiness System Subsystem (Phase 60)
 export * from "./production";
+
+// 57. Production-Quality Real-Data Ingestion Pipeline (Phase 61)
+export * from "./realdata";
+
+// 58. Human-in-the-Loop Annotation & Review Workflow (Phase 62)
+export * from "./review";
+
+// 59. Dataset Versioning & Quality Management (Phase 63)
+export * from "./datasetversioning";
+
+// 60. Hybrid Real + Synthetic Dataset Composition & Stratified Sampling (Phase 64)
+export * from "./composition";
+
+// 61. Formal 3D Assembly State & Transition Representation (Phase 66)
+export * from "./assemblystate";
+
+// 62. Assembly-Feasibility Validation Subsystem (Phase 68)
+export * from "./feasibility";
+
+// 63. Formal Puzzle Difficulty Representation & Deterministic Scoring (Phase 69)
+export * from "./difficulty";
+
+// 64. AI-Assisted Puzzle Design Generation Workflow (Phase 71)
+export * from "./designgeneration";
+
+// 65. AI Design Critic Subsystem (Phase 72)
+export * from "./critic";
+
+// 66. AI-Assisted Repair Agent Subsystem (Phase 73)
+export * from "./repairagent";
+
+// 67. Multi-Candidate AI Design Generation Subsystem (Phase 74)
+export * from "./candidategeneration";
+
+// 68. Complete AI + Optimization Loop Subsystem (Phase 75)
+export * from "./aioptimizationloop";
+
+// 69. Preference Learning Infrastructure Subsystem (Phase 76)
+export * from "./preference";
+
+// 70. AI Puzzle-Design System Benchmark Subsystem (Phase 77)
+export * from "./systembenchmark";
+
+// 71. Autonomous 2D Puzzle-Generation Subsystem (Advanced Autonomous Generation Phase)
+export * from "./autonomous2d";
+
+// 72. Automatic Puzzle-Boundary Partitioning Engine (Phase 82)
+export * from "./boundarypartition";
+
+// 73. Automatic Connector Generation Engine (Phase 83)
+export * from "./connectorgeneration";
+
+// 74. Automatic Connector Placement Engine (Phase 84)
+export * from "./connectorplacement";
