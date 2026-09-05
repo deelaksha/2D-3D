@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import ExportPreviewPanel from "./ExportPreviewPanel";
 
 interface ToolCall {
   tool: string;
@@ -31,7 +32,15 @@ interface ModelDetails {
 
 const BACKEND_URL = "http://localhost:8000";
 
+import AIDesignerPanel from "../designer/AIDesignerPanel";
+
+export { AIDesignerPanel };
+
 export default function AiAssistantPanel() {
+  return <AIDesignerPanel />;
+}
+
+function LegacyAiAssistantPanel() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
@@ -44,6 +53,10 @@ export default function AiAssistantPanel() {
   const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [backendHealth, setBackendHealth] = useState<"connecting" | "healthy" | "error">("connecting");
+  const [llmProvider, setLlmProvider] = useState<"ollama" | "mock">("ollama");
+  const [llmAwake, setLlmAwake] = useState<boolean>(false);
+  const [isAwakening, setIsAwakening] = useState<boolean>(false);
+  const [llmModelName, setLlmModelName] = useState<string>("qwen3:8b");
   const [currentModelId, setCurrentModelId] = useState<string | null>(null);
   const [activeModelDetails, setActiveModelDetails] = useState<ModelDetails | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -51,6 +64,7 @@ export default function AiAssistantPanel() {
   const [progressPercent, setProgressPercent] = useState(0);
   const [thinkingStage, setThinkingStage] = useState("Analyzing prompt...");
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -98,6 +112,66 @@ export default function AiAssistantPanel() {
     return () => clearInterval(interval);
   }, [loading, selectedImageBase64]);
 
+  // Awaken local AI model into VRAM/RAM
+  const handleAwakenModel = async (silent = false) => {
+    if (isAwakening) return;
+    setIsAwakening(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/ai/awaken`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keep_alive: "60m" }),
+      });
+      const data = await res.json();
+      if (data.is_awake || data.success) {
+        setLlmAwake(true);
+        if (!silent) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: Date.now().toString(),
+              sender: "system",
+              text: `⚡ Local AI Model (${data.model || llmModelName}) is now AWAKE and preloaded into VRAM! Ready for fast generation.`,
+              timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            },
+          ]);
+        }
+      }
+    } catch (err: any) {
+      console.warn("Awaken error:", err);
+    } finally {
+      setIsAwakening(false);
+    }
+  };
+
+  // Switch between Ollama and Mock AI
+  const handleToggleProvider = async () => {
+    const nextProvider = llmProvider === "ollama" ? "mock" : "ollama";
+    try {
+      const res = await fetch(`${BACKEND_URL}/ai/mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: nextProvider }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setLlmProvider(nextProvider);
+        setLlmAwake(Boolean(data.llm_awake));
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            sender: "system",
+            text: `🔄 Active AI Engine changed to: ${nextProvider === "mock" ? "Mock AI (Instant Mock Engine)" : "Local Qwen (Ollama Engine)"}`,
+            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          },
+        ]);
+      }
+    } catch (err: any) {
+      console.error("Mode toggle error:", err);
+    }
+  };
+
   // Health check polling
   useEffect(() => {
     let timer: any;
@@ -106,14 +180,27 @@ export default function AiAssistantPanel() {
         .then((res) => res.json())
         .then((data) => {
           setBackendHealth(data.status === "healthy" ? "healthy" : "error");
+          if (data.llm_provider) setLlmProvider(data.llm_provider);
+          if (typeof data.llm_awake === "boolean") setLlmAwake(data.llm_awake);
+          if (data.llm_model) setLlmModelName(data.llm_model);
         })
-        .catch(() => setBackendHealth("error"));
+        .catch(() => {
+          setBackendHealth("error");
+          setLlmAwake(false);
+        });
     };
 
     checkHealth();
-    timer = setInterval(checkHealth, 5000);
+    timer = setInterval(checkHealth, 4000);
     return () => clearInterval(timer);
   }, []);
+
+  // Background auto-awaken on mount if backend is healthy
+  useEffect(() => {
+    if (backendHealth === "healthy" && !llmAwake && llmProvider === "ollama") {
+      handleAwakenModel(true);
+    }
+  }, [backendHealth, llmAwake, llmProvider]);
 
   // Scroll to bottom
   useEffect(() => {
@@ -188,7 +275,12 @@ export default function AiAssistantPanel() {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        let errorDetail = response.statusText;
+        try {
+          const errData = await response.json();
+          if (errData.detail) errorDetail = errData.detail;
+        } catch {}
+        throw new Error(`HTTP ${response.status}: ${errorDetail}`);
       }
 
       const data = await response.json();
@@ -212,7 +304,7 @@ export default function AiAssistantPanel() {
         {
           id: (Date.now() + 1).toString(),
           sender: "system",
-          text: `⚠️ Error communicating with Local AI Backend: ${err.message}`,
+          text: `⚠️ Error communicating with Local AI Backend: ${err.message}. Hint: ensure 'python start_services.py' is running, or switch to Mock Mode above.`,
           timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         },
       ]);
@@ -276,23 +368,154 @@ export default function AiAssistantPanel() {
 
   return (
     <div className="wk-panel wk-ai-panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div className="wk-panel__head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span>🤖 AI 3D Generator (Qwen2.5-VL)</span>
-        <span
-          className={`wk-badge ${
-            backendHealth === "healthy" ? "wk-badge--healthy" : backendHealth === "connecting" ? "" : "wk-badge--error"
-          }`}
+      <div
+        className="wk-panel__head"
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: "6px",
+          padding: "8px 10px",
+        }}
+      >
+        <span style={{ fontWeight: 600, fontSize: "12px" }}>🤖 AI 3D Generator</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          {/* Mode Switcher */}
+          <button
+            onClick={handleToggleProvider}
+            title="Click to toggle between Local Qwen (Ollama) and Instant Mock AI"
+            style={{
+              fontSize: "10px",
+              padding: "2px 6px",
+              borderRadius: "4px",
+              border: "1px solid var(--wk-border, #4b5563)",
+              background: llmProvider === "mock" ? "#6366f1" : "rgba(255,255,255,0.08)",
+              color: "#fff",
+              cursor: "pointer",
+            }}
+          >
+            {llmProvider === "mock" ? "⚡ Mock Mode" : "🦙 Ollama Qwen"}
+          </button>
+
+          {/* Model Status Badge & Awaken Action */}
+          {backendHealth === "healthy" ? (
+            llmProvider === "mock" ? (
+              <span
+                className="wk-badge"
+                style={{ backgroundColor: "#8b5cf6", color: "#fff", fontSize: "10px", padding: "2px 6px", borderRadius: "4px" }}
+              >
+                Mock Ready
+              </span>
+            ) : isAwakening ? (
+              <span
+                className="wk-badge"
+                style={{ backgroundColor: "#3b82f6", color: "#fff", fontSize: "10px", padding: "2px 6px", borderRadius: "4px" }}
+              >
+                🔄 Awakening...
+              </span>
+            ) : llmAwake ? (
+              <span
+                className="wk-badge"
+                style={{ backgroundColor: "#10b981", color: "#fff", fontSize: "10px", padding: "2px 6px", borderRadius: "4px" }}
+              >
+                🟢 Awake & Ready
+              </span>
+            ) : (
+              <button
+                onClick={() => handleAwakenModel(false)}
+                title="AI model is sleeping. Click to awaken & preload into VRAM."
+                style={{
+                  backgroundColor: "#f59e0b",
+                  color: "#000",
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  padding: "2px 8px",
+                  borderRadius: "4px",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+              >
+                ⚡ Awaken AI
+              </button>
+            )
+          ) : backendHealth === "connecting" ? (
+            <span
+              className="wk-badge"
+              style={{ backgroundColor: "#f59e0b", color: "#000", fontSize: "10px", padding: "2px 6px", borderRadius: "4px" }}
+            >
+              Connecting...
+            </span>
+          ) : (
+            <span
+              className="wk-badge"
+              style={{ backgroundColor: "#ef4444", color: "#fff", fontSize: "10px", padding: "2px 6px", borderRadius: "4px" }}
+            >
+              Backend Offline
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Offline Alert Banner */}
+      {backendHealth === "error" && (
+        <div
           style={{
-            backgroundColor: backendHealth === "healthy" ? "#10b981" : backendHealth === "connecting" ? "#f59e0b" : "#ef4444",
-            color: "#fff",
-            fontSize: "10px",
-            padding: "2px 6px",
-            borderRadius: "4px",
+            margin: "8px",
+            padding: "8px 10px",
+            backgroundColor: "rgba(239, 68, 68, 0.15)",
+            border: "1px solid #ef4444",
+            borderRadius: "6px",
+            fontSize: "11px",
+            color: "#fca5a5",
           }}
         >
-          {backendHealth === "healthy" ? "Backend Ready" : backendHealth === "connecting" ? "Connecting..." : "Backend Offline"}
-        </span>
-      </div>
+          <div style={{ fontWeight: "bold", marginBottom: "3px" }}>⚠️ Local AI Backend is Offline</div>
+          <div>To awaken the AI, start the service by running:</div>
+          <code style={{ display: "block", marginTop: "4px", padding: "4px", background: "rgba(0,0,0,0.3)", borderRadius: "3px" }}>
+            python start_services.py
+          </code>
+        </div>
+      )}
+
+      {/* Sleeping Model Alert Banner */}
+      {backendHealth === "healthy" && !llmAwake && llmProvider === "ollama" && (
+        <div
+          style={{
+            margin: "8px",
+            padding: "8px 10px",
+            backgroundColor: "rgba(245, 158, 11, 0.15)",
+            border: "1px solid #f59e0b",
+            borderRadius: "6px",
+            fontSize: "11px",
+            color: "#fde68a",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <strong>AI Model Sleeping</strong>
+            <div style={{ fontSize: "10px", opacity: 0.9 }}>Preload {llmModelName} into VRAM for fast generation.</div>
+          </div>
+          <button
+            disabled={isAwakening}
+            onClick={() => handleAwakenModel(false)}
+            style={{
+              padding: "4px 8px",
+              backgroundColor: "#f59e0b",
+              color: "#000",
+              fontWeight: "bold",
+              fontSize: "11px",
+              border: "none",
+              borderRadius: "4px",
+              cursor: isAwakening ? "wait" : "pointer",
+            }}
+          >
+            {isAwakening ? "Awakening..." : "⚡ Awaken"}
+          </button>
+        </div>
+      )}
 
       {/* Active Model Status Card */}
       {activeModelDetails && (
@@ -315,17 +538,26 @@ export default function AiAssistantPanel() {
             <div>Colors: {activeModelDetails.colors.join(", ")}</div>
           )}
           {activeModelDetails.file_path && (
-            <div style={{ marginTop: "6px", display: "flex", gap: "6px" }}>
-              <a
-                href={`${BACKEND_URL}/${activeModelDetails.file_path}`}
-                target="_blank"
-                rel="noreferrer"
-                download
-                className="wk-btn"
-                style={{ fontSize: "11px", padding: "4px 8px", textDecoration: "none", display: "inline-block" }}
+            <div style={{ marginTop: "6px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
+              <button
+                onClick={() => setPreviewOpen(true)}
+                style={{
+                  fontSize: "11px",
+                  padding: "5px 10px",
+                  background: "linear-gradient(135deg,#2563eb,#1d4ed8)",
+                  border: "none",
+                  borderRadius: "5px",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
+                title="Preview the generated model inside the browser"
               >
-                💾 Download {exportFormat.toUpperCase()}
-              </a>
+                👁 Preview {exportFormat.toUpperCase()}
+              </button>
             </div>
           )}
         </div>
@@ -611,6 +843,17 @@ export default function AiAssistantPanel() {
           Send
         </button>
       </div>
+
+      {/* ── In-browser Export Preview Modal ── */}
+      {previewOpen && activeModelDetails?.file_path && (
+        <ExportPreviewPanel
+          modelId={activeModelDetails.model_id}
+          filePath={activeModelDetails.file_path}
+          backendUrl={BACKEND_URL}
+          exportFormat={exportFormat}
+          onClose={() => setPreviewOpen(false)}
+        />
+      )}
     </div>
   );
 }

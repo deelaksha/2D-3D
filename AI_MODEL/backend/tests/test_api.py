@@ -101,3 +101,25 @@ def test_list_models(client):
 def test_conversation_not_found_returns_404(client):
     resp = client.get("/conversations/does_not_exist")
     assert resp.status_code == 404
+
+
+def test_ai_awaken_and_mode_endpoints(client):
+    # Test mode toggle to mock
+    mode_resp = client.post("/ai/mode", json={"provider": "mock"})
+    assert mode_resp.status_code == 200
+    assert mode_resp.json()["active_provider"] == "mock"
+
+    # Test health has awake and provider info
+    health_resp = client.get("/health")
+    assert health_resp.status_code == 200
+    data = health_resp.json()
+    assert "llm_awake" in data
+    assert "llm_available" in data
+    assert data["llm_provider"] == "mock"
+
+    # Test awaken endpoint in mock mode
+    awaken_resp = client.post("/ai/awaken", json={"model": "mock-model"})
+    assert awaken_resp.status_code == 200
+    awaken_data = awaken_resp.json()
+    assert awaken_data["success"] is True
+    assert awaken_data["is_awake"] is True

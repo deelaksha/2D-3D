@@ -7,11 +7,7 @@ Write-Host "==================================================" -ForegroundColor
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $BackendDir = Join-Path $ScriptDir "AI_MODEL\backend"
-$FrontendDir = Join-Path $ScriptDir "AI_MODEL\frontend"
-
-if (-not (Test-Path $FrontendDir)) {
-    $FrontendDir = $ScriptDir
-}
+$FrontendDir = $ScriptDir
 
 Write-Host "[LAUNCHER] Backend Directory  : $BackendDir" -ForegroundColor Gray
 Write-Host "[LAUNCHER] Frontend Directory : $FrontendDir" -ForegroundColor Gray

@@ -124,23 +124,28 @@ export function alignInterfaces(
   // 1. Calculate source interface origin in world space
   const sourceWorldOrigin = localToWorld(sourceTransform, sourceFrame.origin);
 
-  // 2. Compute mating quaternion relative to source frame
-  const joiningRad = (joiningAngleDeg * Math.PI) / 180;
-  const rollRad = (rollAngleDeg * Math.PI) / 180;
+  // 2. The interface hinge axis is the tangent along the joint edge in world space
+  const tangentAxis = sourceFrame.tangent ? sourceFrame.tangent : vec3(1, 0, 0);
+  const sourceWorldTangent = quatRotateVector(sourceTransform.rotation, tangentAxis);
 
-  // 180 deg rotation around Z/binormal axis to oppose normals
-  const qOppose = quatFromAxisAngle(vec3(0, 0, 1), Math.PI);
-  // Rotation by joining angle around X/tangent axis
-  const qJoining = quatFromAxisAngle(vec3(1, 0, 0), joiningRad);
-  // Roll angle around Y/normal axis
-  const qRoll = quatFromAxisAngle(vec3(0, 1, 0), rollRad);
+  // 3. Fold angle around the interface tangent axis:
+  // At 180° (coplanar / flat), fold angle is 0 (unfolded sheet).
+  // At 90° (perpendicular), fold angle is 90° (folded upright box facet).
+  // At 0° (fold-back), fold angle is 180° (folded completely back on top).
+  const foldAngleRad = ((180.0 - joiningAngleDeg) * Math.PI) / 180.0;
+  const rollRad = (rollAngleDeg * Math.PI) / 180.0;
 
-  const qMatingRelative = quatMultiply(qJoining, quatMultiply(qRoll, qOppose));
+  let qFold = quatFromAxisAngle(sourceWorldTangent, foldAngleRad);
+  if (Math.abs(rollAngleDeg) > 1e-4) {
+    const normalAxis = sourceFrame.normal ? sourceFrame.normal : vec3(0, 1, 0);
+    const sourceWorldNormal = quatRotateVector(sourceTransform.rotation, normalAxis);
+    const qRoll = quatFromAxisAngle(sourceWorldNormal, rollRad);
+    qFold = quatMultiply(qRoll, qFold);
+  }
 
-  // 3. Target piece world rotation = source rotation * mating quaternion
-  const targetRotation = quatMultiply(sourceTransform.rotation, qMatingRelative);
+  const targetRotation = quatMultiply(qFold, sourceTransform.rotation);
 
-  // 4. Target piece world position = source world origin - target rotation * target interface local origin
+  // 4. Target piece world position: aligns target interface origin with source interface origin
   const rotatedTargetFrameOrigin = quatRotateVector(targetRotation, targetFrame.origin);
   const targetPosition = sub3(sourceWorldOrigin, rotatedTargetFrameOrigin);
 

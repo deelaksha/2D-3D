@@ -27,7 +27,9 @@ import Inspector from "./ui/panels/Inspector";
 import CanvasBoard from "./ui/board/CanvasBoard";
 import CommandPalette from "./ui/palette/CommandPalette";
 import JointsPanel from "./ui/panels/JointsPanel";
-import AiAssistantPanel from "./ui/panels/AiAssistantPanel";
+import AIDesignerPanel from "./ui/designer/AIDesignerPanel";
+import PanelErrorBoundary from "./ui/common/PanelErrorBoundary";
+import { designerStore, initializeAIWorkspace, normalizeAIWorkspaceState } from "./core/puzzle/designer";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -52,11 +54,37 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     console.error("App Error Boundary caught error:", error, errorInfo);
   }
 
+  handleRecoverSession = () => {
+    try {
+      // 1. Recover and validate persisted project state
+      const raw = typeof localStorage !== "undefined" ? localStorage.getItem("woodkit.project") : null;
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === "object") {
+            store.loadProject(parsed, "Recovered project");
+          }
+        } catch {}
+      }
+
+      // 2. Sanitize and normalize AI workspace state so null/missing fields are filled
+      const currentAI = designerStore.getState();
+      initializeAIWorkspace(currentAI);
+    } catch (err) {
+      console.warn("Session recovery issue, initializing canonical AI workspace:", err);
+      initializeAIWorkspace(undefined);
+    }
+    this.setState({ hasError: false, error: null });
+  };
+
   handleReset = () => {
     try {
-      localStorage.removeItem("woodkit.project");
+      if (typeof localStorage !== "undefined") {
+        localStorage.removeItem("woodkit.project");
+      }
     } catch {}
     store.loadProject(makeProject(), "Reset project");
+    initializeAIWorkspace(undefined);
     this.setState({ hasError: false, error: null });
   };
 
@@ -76,7 +104,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
           <div style={{ display: "flex", gap: 10 }}>
             <button
               type="button"
-              onClick={() => this.setState({ hasError: false, error: null })}
+              onClick={this.handleRecoverSession}
               style={{ padding: "10px 18px", background: "#3b82f6", color: "#ffffff", border: "none", borderRadius: 8, fontWeight: 700, cursor: "pointer" }}
             >
               🔄 Recover Session
@@ -114,7 +142,7 @@ function RightColumn(props: { onResizeStart: (event: PointerEvent<HTMLDivElement
           className={"wk-tab" + (ui.panelTab === "ai" ? " wk-tab--active" : "")}
           onClick={() => store.setUI({ panelTab: "ai" })}
         >
-          🤖 AI Generator
+          🤖 AI Designer
         </button>
         <button
           className={"wk-tab" + (ui.panelTab === "parts" ? " wk-tab--active" : "")}
@@ -137,7 +165,12 @@ function RightColumn(props: { onResizeStart: (event: PointerEvent<HTMLDivElement
       </div>
       <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         {ui.panelTab === "ai" ? (
-          <AiAssistantPanel />
+          <PanelErrorBoundary
+            name="AI Designer"
+            onReset={() => initializeAIWorkspace(undefined)}
+          >
+            <AIDesignerPanel />
+          </PanelErrorBoundary>
         ) : ui.panelTab === "layers" ? (
           <LayersPanel />
         ) : ui.panelTab === "joints" ? (

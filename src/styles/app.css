@@ -930,3 +930,42 @@ button { font-family: inherit; }
     max-height: 100% !important;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* AI DESIGNER WORKSPACE (Prompts 101–120)                             */
+/* ------------------------------------------------------------------ */
+
+.wk-ai-designer-workspace {
+  font-family: var(--wk-font);
+  background: var(--wk-surface);
+  color: var(--wk-ink);
+  scrollbar-width: thin;
+  scrollbar-color: var(--wk-border-strong) transparent;
+}
+
+.wk-ai-designer-workspace::-webkit-scrollbar {
+  width: 5px;
+}
+
+.wk-ai-designer-workspace::-webkit-scrollbar-thumb {
+  background: var(--wk-border-strong);
+  border-radius: 4px;
+}
+
+.wk-ai-designer-workspace button:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.wk-ai-designer-workspace select {
+  font-family: var(--wk-font);
+  background: var(--wk-surface);
+  color: var(--wk-ink);
+  border: 1px solid var(--wk-border-strong);
+  border-radius: 4px;
+  outline: none;
+}
+
+.wk-ai-designer-workspace input[type="text"],
+.wk-ai-designer-workspace textarea {
+  font-family: var(--wk-font);
+}

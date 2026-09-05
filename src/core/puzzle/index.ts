@@ -234,3 +234,258 @@ export * from "./connectorgeneration";
 
 // 74. Automatic Connector Placement Engine (Phase 84)
 export * from "./connectorplacement";
+
+// 75. Automatic 2D Generation System (Phase 85)
+export {
+  Automatic2DGenerationEngine,
+  GlobalBoundaryGenerator,
+  PiecePartitioningAdapter,
+  ConnectionGraphBuilder,
+  ConnectorSynthesisEngine,
+  ParametricGeometryEngine,
+  Automatic2DValidator,
+} from "./automatic2d";
+export type {
+  DesignSpecification2D,
+  GeneratedPiece2D,
+  GeneratedConnection2D,
+  GeneratedPuzzle2D as Automatic2DGeneratedPuzzle,
+  PieceDimensions2D,
+  ValidationResult2D,
+  ValidationIssue2D,
+} from "./automatic2d";
+
+// 76. Exact 3D Piece Conversion Subsystem (Phase 86)
+export {
+  Piece3DConversionEngine,
+  ProfileExtractor,
+  SolidExtruder,
+  CoordinateFrameAssigner,
+  Validator3D,
+} from "./piece3d";
+export type {
+  GeneratedPiece3D,
+  ExtrudablePieceProfile,
+  RetainedConnection3D,
+  ConvertedPuzzle3D,
+  Piece3DValidationReport,
+  Piece3DValidationIssue,
+} from "./piece3d";
+
+// 77. Automatic 3D Assembly Generator (Phase 87)
+export {
+  Automatic3DAssemblyGenerator,
+  RootSelector,
+  InterfaceAligner,
+  PlacementValidator,
+} from "./assembly3d";
+export type {
+  DesiredAssemblyConfiguration,
+  AssemblyPlacement,
+  PieceTransforms,
+  ConnectionState3D,
+  ConnectionStates,
+  GeneratedAssembly3D,
+  AssemblyValidationReport as Phase87AssemblyValidationReport,
+  PlacementValidationResult,
+  AutomaticAssemblyRequest,
+} from "./assembly3d";
+
+// 78. Automatic Joining-Angle Generation System (Phase 88)
+export {
+  AutomaticJoiningAngleEngine,
+  evaluateConnectionAngles,
+  evaluatePuzzleJoiningAngles,
+  generateCandidateAngles,
+  getConnectorAngleRange,
+  validateCandidateAngle,
+  evaluateCandidates,
+} from "./anglegeneration";
+export type {
+  AngleRejectionReason,
+  TierStatus,
+  CandidateAngleEvaluation,
+  RejectedAngleInfo,
+  ValidAngleCandidates,
+  AngleGenerationOptions,
+  AngleGenerationRequest,
+  PuzzleJoiningAnglesResult,
+} from "./anglegeneration";
+
+// 79. Complete Automatic Assembly Solver (Phase 89)
+export {
+  BacktrackingAssemblySolver,
+  solveAutomaticAssembly,
+  AssemblyCollisionDetector,
+  TransformEvaluator,
+} from "./assemblysolver";
+export type {
+  AssemblySolverInput,
+  AssemblySolverOptions,
+  SuccessfulAssembly,
+  AssemblyFailureReport,
+  AssemblySolverResult,
+  PlacementRejectionCode,
+  SolverStepDiagnostic,
+  SolverMetrics,
+  CollisionCheckResult,
+  BoundingBox3D,
+  EvaluatedTransformResult,
+} from "./assemblysolver";
+
+// 80. Complete Connector & Assembly Validation Pass (Phase 90)
+export {
+  AssemblyValidationPass,
+  validateConnectorAndAssembly,
+  ConnectionValidator,
+  AssemblyLevelValidator,
+} from "./assemblyvalidation";
+export type {
+  ValidationFailureItem,
+  ConnectionValidationDetail,
+  PieceValidationDetail,
+  AssemblyValidationOptions,
+  AssemblyValidationInput,
+  AssemblyValidationReport,
+} from "./assemblyvalidation";
+
+// 81. Autonomous Generator to Repair System (Phase 91)
+export {
+  AutonomousRepairEngine,
+  repairAutonomousAssembly,
+  ParameterFaultLocalizer,
+  LocalGeometryRegenerator,
+} from "./autonomousrepair";
+export type {
+  ParameterModification,
+  RepairAttempt,
+  RepairHistory,
+  AutonomousRepairConfig,
+  FinalRepairStatus,
+} from "./autonomousrepair";
+
+// 82. High-Level Autonomous Puzzle Generator API (Phase 92)
+export {
+  HighLevelPuzzleGenerator,
+  generatePuzzle,
+  RequirementParser,
+  parseRequirement,
+} from "./highlevelapi";
+export type {
+  PuzzleRequirementInput,
+  ParsedRequirement,
+  GenerationStatistics,
+  PuzzleGenerationResult,
+  HighLevelGeneratorOptions,
+} from "./highlevelapi";
+
+// 83. Renderer-Independent 3D Scene Representation (Phase 93)
+export {
+  SceneBuilder,
+  RenderGeometryFactory,
+} from "./scene";
+export type {
+  Scene,
+  SceneObject,
+  SceneObjectKind,
+  RenderGeometry,
+  SceneDisplayProperties,
+  SceneMaterial,
+  SceneConnection,
+  SceneConnectionVisualization,
+  SceneCoordinateAxes,
+  SceneMetadata,
+  SceneBuildOptions,
+} from "./scene";
+
+// 84. Interactive 3D Preview (Phase 94)
+export {
+  ThreeSceneBridge,
+  Puzzle3DViewerController,
+  Puzzle3DPreview,
+} from "@/ui/preview3d";
+export type {
+  Puzzle3DVisualState,
+  ViewerCameraPreset,
+  ViewerInteractionMode,
+  ViewerSelectionState,
+  ViewerCameraState,
+  Puzzle3DPreviewProps,
+} from "@/ui/preview3d";
+
+// 85. Connection Angle Inspection & Live Manipulation (Phase 95)
+export {
+  AngleManipulationEngine,
+  KinematicTreeSolver,
+} from "./manipulation";
+export type {
+  ConnectionAngleInspection,
+  AngleAdjustmentRequest,
+  AngleAdjustmentResult,
+} from "./manipulation";
+
+// 86. Exploded Assembly Visualization (Phase 96)
+export {
+  ExplodedAssemblyEngine,
+} from "./exploded";
+export type {
+  ExplodedViewMode,
+  ExplodedPieceState,
+  ExplodedInterfaceIndicator,
+  ExplodedConnectionIndicator,
+  AssemblyStepState,
+  ExplodedIndicatorOptions,
+  ExplodedAssemblyConfig,
+  ExplodedAssemblyResult,
+} from "./exploded";
+
+// 87. Assembly-Animation System (Phase 97)
+export {
+  AssemblyAnimationEngine,
+  AssemblyAnimationPlayer,
+} from "./animation";
+export type {
+  AnimationPlaybackState,
+  AnimationPhase,
+  PieceAnimationKeyframe,
+  StepAnimationTrack,
+  AssemblyAnimationTimeline,
+  AnimationPlaybackStatus,
+  AnimationGenerationOptions,
+} from "./animation";
+
+// 88. Comprehensive Puzzle Export Subsystem (Phase 99)
+export {
+  PuzzleExportEngine,
+  SvgExporter,
+  DxfExporter,
+  DimensionedDrawingExporter,
+  StlExporter,
+  ObjExporter,
+  GltfExporter,
+  StepExporter,
+  MetadataExporter,
+  PuzzleExportValidationError,
+} from "./export";
+export type {
+  Export2DOptions,
+  Export3DOptions,
+  ExportMetadataOptions,
+  PuzzleExportOptions,
+  ExportedPiece2D,
+  CombinedLayoutResult,
+  ExportedPiece3D,
+  Assembled3DExport,
+  PuzzleMetadataPackage,
+  PuzzleExportPackage,
+} from "./export";// 89. End-to-End Autonomous Demonstration (Phase 100)
+export { AutonomousDemonstrator } from "./demonstration";
+export type {
+  DemonstrationStep,
+  DemonstrationMeasurements,
+  AutonomousDemonstrationResult,
+} from "./demonstration";
+
+// 90. Professional AI Designer Workspace (Prompts 101–120)
+export * from "./designer";
+

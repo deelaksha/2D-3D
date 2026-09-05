@@ -89,3 +89,44 @@ export function transformPoint3D(t: Transform3D, p: Vec3): Vec3 {
   const rotated = quatRotateVector(t.rotation, scaled);
   return add3(t.position, rotated);
 }
+
+/** Linear interpolation between two 3D vectors. */
+export function lerp3(a: Vec3, b: Vec3, t: number): Vec3 {
+  return {
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+    z: a.z + (b.z - a.z) * t,
+  };
+}
+
+/** Spherical linear interpolation between two quaternions. */
+export function quatSlerp(qa: Quaternion, qb: Quaternion, t: number): Quaternion {
+  let cosHalfTheta = qa.x * qb.x + qa.y * qb.y + qa.z * qb.z + qa.w * qb.w;
+  let target = qb;
+  if (cosHalfTheta < 0) {
+    target = { x: -qb.x, y: -qb.y, z: -qb.z, w: -qb.w };
+    cosHalfTheta = -cosHalfTheta;
+  }
+  if (cosHalfTheta > 0.9995) {
+    // Linear interpolation for nearly identical orientations
+    const res = {
+      x: qa.x + (target.x - qa.x) * t,
+      y: qa.y + (target.y - qa.y) * t,
+      z: qa.z + (target.z - qa.z) * t,
+      w: qa.w + (target.w - qa.w) * t,
+    };
+    const len = Math.sqrt(res.x * res.x + res.y * res.y + res.z * res.z + res.w * res.w);
+    return { x: res.x / len, y: res.y / len, z: res.z / len, w: res.w / len };
+  }
+  const halfTheta = Math.acos(cosHalfTheta);
+  const sinHalfTheta = Math.sqrt(1.0 - cosHalfTheta * cosHalfTheta);
+  const ratioA = Math.sin((1 - t) * halfTheta) / sinHalfTheta;
+  const ratioB = Math.sin(t * halfTheta) / sinHalfTheta;
+  return {
+    x: qa.x * ratioA + target.x * ratioB,
+    y: qa.y * ratioA + target.y * ratioB,
+    z: qa.z * ratioA + target.z * ratioB,
+    w: qa.w * ratioA + target.w * ratioB,
+  };
+}
+

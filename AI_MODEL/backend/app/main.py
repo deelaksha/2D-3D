@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +13,25 @@ from app.config import get_settings
 from app.services import db
 
 logger = logging.getLogger("app")
+
+
+def _background_warmup():
+    try:
+        from app.llm.client import get_llm_client
+        client = get_llm_client()
+        if client.is_available() and not client.is_awake():
+            logger.info("Awakening local AI model in background...")
+            res = client.awaken(keep_alive="60m")
+            logger.info("Local AI model background awaken complete: %s", res)
+    except Exception as exc:
+        logger.warning("Background AI model warmup skipped: %s", exc)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    warmup_thread = threading.Thread(target=_background_warmup, daemon=True)
+    warmup_thread.start()
+    yield
 
 
 def create_app() -> FastAPI:
@@ -27,6 +48,7 @@ def create_app() -> FastAPI:
         title="Local AI 3D Model Generator",
         description="Local, mock-first pipeline: Frontend -> FastAPI -> Agent -> Local LLM -> Tools.",
         version="0.1.0",
+        lifespan=lifespan,
     )
 
     app.add_middleware(

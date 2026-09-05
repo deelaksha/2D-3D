@@ -15,7 +15,7 @@ import time
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 AI_MODEL_DIR = os.path.dirname(SCRIPT_DIR)
 AI_BACKEND_DIR = os.path.join(AI_MODEL_DIR, "backend")
-AI_FRONTEND_DIR = os.path.join(AI_MODEL_DIR, "frontend")
+AI_FRONTEND_DIR = os.path.dirname(AI_MODEL_DIR)
 
 processes = []
 

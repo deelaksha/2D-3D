@@ -149,7 +149,12 @@ export class PuzzleAssemblyGraph {
   /* Path Reachability & Connected Components                           */
   /* ------------------------------------------------------------------ */
 
-  isConnected(pieceIdA: ID, pieceIdB: ID): boolean {
+  isConnected(pieceIdA?: ID, pieceIdB?: ID): boolean {
+    if (pieceIdA === undefined && pieceIdB === undefined) {
+      if (this.nodes.size <= 1) return true;
+      return this.getConnectedComponents().length === 1 && this.getIsolatedPieces().length === 0;
+    }
+    if (!pieceIdA || !pieceIdB) return false;
     if (!this.nodes.has(pieceIdA) || !this.nodes.has(pieceIdB)) return false;
     if (pieceIdA === pieceIdB) return true;
 

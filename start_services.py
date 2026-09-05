@@ -68,6 +68,41 @@ def cleanup(signum=None, frame=None):
     print("[LAUNCHER] All services stopped.")
     sys.exit(0)
 
+def check_and_awaken_ai():
+    """Background helper to check Ollama and ping awaken endpoint once backend is ready."""
+    import urllib.request
+    import json
+
+    # 1. Check Ollama
+    try:
+        req = urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2)
+        if req.status == 200:
+            print("[LAUNCHER] [AI-CHECK] Ollama daemon is active on port 11434.")
+    except Exception:
+        print("[LAUNCHER] [AI-CHECK] Notice: Ollama daemon is not reachable on http://localhost:11434.")
+        print("[LAUNCHER] [AI-CHECK] The backend will run with Mock LLM fallback unless Ollama is started.")
+
+    # 2. Wait for FastAPI backend and awaken model
+    for _ in range(15):
+        time.sleep(1)
+        try:
+            req = urllib.request.urlopen("http://localhost:8000/health", timeout=2)
+            if req.status == 200:
+                print("[LAUNCHER] [AI-CHECK] Backend ready. Sending awaken request to preload AI model into VRAM...")
+                awaken_req = urllib.request.Request(
+                    "http://localhost:8000/ai/awaken",
+                    data=b"{}",
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(awaken_req, timeout=5) as resp:
+                    data = json.loads(resp.read().decode())
+                    print(f"[LAUNCHER] [AI-CHECK] AI model status: {data.get('status')}")
+                break
+        except Exception:
+            pass
+
+
 def main():
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
@@ -76,7 +111,8 @@ def main():
     print("    Starting Frontend and AI Backend Services     ")
     print("==================================================")
 
-    frontend_dir = AI_FRONTEND_DIR if os.path.exists(AI_FRONTEND_DIR) else DESIGN_FRONTEND_DIR
+    # Always use root WoodKit application directory
+    frontend_dir = DESIGN_FRONTEND_DIR
     print(f"[LAUNCHER] Backend Directory  : {AI_BACKEND_DIR}")
     print(f"[LAUNCHER] Frontend Directory : {frontend_dir}")
 
@@ -96,6 +132,9 @@ def main():
     print("[LAUNCHER] AI Backend API : http://localhost:8000 (Swagger docs: http://localhost:8000/docs)")
     print("[LAUNCHER] Frontend App   : http://localhost:5173 (or see logs below)")
     print("[LAUNCHER] Press Ctrl+C to terminate both services cleanly.\n")
+
+    # Start background AI check & awaken thread
+    threading.Thread(target=check_and_awaken_ai, daemon=True).start()
 
     try:
         while True:

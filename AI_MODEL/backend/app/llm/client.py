@@ -48,6 +48,12 @@ class LLMClient(ABC):
     def is_available(self) -> bool:
         ...
 
+    def is_awake(self, model: Optional[str] = None) -> bool:
+        return True
+
+    def awaken(self, model: Optional[str] = None, keep_alive: str = "60m") -> dict:
+        return {"status": "awake", "provider": "base", "success": True}
+
 
 class OllamaClient(LLMClient):
     """Talks to a locally running Ollama daemon over HTTP.
@@ -76,13 +82,44 @@ class OllamaClient(LLMClient):
         except requests.RequestException:
             return False
 
+    def is_awake(self, model: Optional[str] = None) -> bool:
+        target = model or self.model
+        try:
+            response = requests.get(f"{self.base_url}/api/ps", timeout=2.0)
+            if response.status_code == 200:
+                running_models = [m.get("name", "") for m in response.json().get("models", [])]
+                return any(target in m or m in target for m in running_models)
+        except requests.RequestException:
+            pass
+        return False
+
+    def awaken(self, model: Optional[str] = None, keep_alive: str = "60m") -> dict:
+        target = model or self.model
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/generate",
+                json={"model": target, "keep_alive": keep_alive},
+                timeout=120,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return {
+                "success": True,
+                "model": target,
+                "done_reason": data.get("done_reason", "load"),
+                "status": "awake",
+            }
+        except Exception as exc:
+            logger.warning("Failed to awaken Ollama model %s: %s", target, exc)
+            return {"success": False, "model": target, "error": str(exc), "status": "failed"}
+
     def generate(
         self,
         prompt: str,
         system: Optional[str] = None,
         format: Optional[str] = None,
     ) -> LLMResponse:
-        payload = {"model": self.model, "prompt": prompt, "stream": False}
+        payload = {"model": self.model, "prompt": prompt, "stream": False, "keep_alive": "60m"}
         if system:
             payload["system"] = system
         if format:
@@ -106,13 +143,13 @@ class OllamaClient(LLMClient):
         image_base64: str,
         system: Optional[str] = None,
     ) -> LLMResponse:
-        # Strip data URL prefix if provided (e.g. data:image/png;base64,...)
         clean_base64 = image_base64.split(",")[-1] if "," in image_base64 else image_base64
         payload = {
             "model": self.vision_model,
             "prompt": prompt or "Analyze this image and describe the object, parts, materials, colors, shape, and structure in detail for 3D modeling.",
             "images": [clean_base64],
             "stream": False,
+            "keep_alive": "60m",
         }
         if system:
             payload["system"] = system
@@ -121,7 +158,6 @@ class OllamaClient(LLMClient):
             response = requests.post(f"{self.base_url}/api/generate", json=payload, timeout=self.timeout)
             response.raise_for_status()
         except requests.RequestException as exc:
-            # Fall back gracefully if vision model isn't pulled yet in local Ollama daemon
             logger.warning("Failed to reach vision model %s on Ollama: %s", self.vision_model, exc)
             raise LLMError(f"failed to reach Ollama vision model {self.vision_model!r}: {exc}") from exc
 
@@ -255,19 +291,36 @@ class MockLLMClient(LLMClient):
         )
 
 
-def get_llm_client() -> LLMClient:
+_active_provider_override: Optional[str] = None
+
+
+def set_provider_override(provider: Optional[str]) -> None:
+    global _active_provider_override
+    if provider in ("ollama", "mock", None):
+        _active_provider_override = provider
+    else:
+        raise ValueError(f"Unsupported provider: {provider}")
+
+
+def get_active_provider() -> str:
+    if _active_provider_override:
+        return _active_provider_override
+    return get_settings().llm_provider
+
+
+def get_llm_client(force_provider: Optional[str] = None) -> LLMClient:
+    provider = force_provider or _active_provider_override or get_settings().llm_provider
     settings = get_settings()
-    if settings.llm_provider == "ollama":
-        client = OllamaClient()
-        if client.is_available():
-            return client
-        logger.warning("Ollama daemon is unreachable at %s. Falling back to MockLLMClient.", settings.llm_base_url)
-        return MockLLMClient()
-    elif settings.llm_provider == "mock":
+    if provider == "ollama":
+        # A configured real provider must never be silently replaced with a
+        # mock.  The UI uses is_available() to present an actionable offline
+        # state, and generation requests then fail honestly instead of being
+        # reported as completed by a deterministic placeholder.
+        return OllamaClient()
+    elif provider == "mock":
         return MockLLMClient()
 
     raise NotImplementedError(
-        f"LLM_PROVIDER={settings.llm_provider!r} is not supported. "
+        f"LLM_PROVIDER={provider!r} is not supported. "
         "Supported providers are 'ollama' and 'mock'."
     )
-
